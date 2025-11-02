@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+var dict = make(map[string]string)
+
 func encode(str string) string {
 	result := fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
 	return result
@@ -34,12 +36,26 @@ func handleConnection(conn net.Conn) {
 				i++
 			}
 		}
+		fmt.Println(args)
 		cmd := args[0]
+
 		if cmd == "ECHO" {
 			fmt.Println(encode(args[1]))
 			_, err = conn.Write([]byte(encode(args[1])))
 		} else if cmd == "PING" {
 			_, err = conn.Write([]byte("+PONG\r\n"))
+		} else if cmd == "SET" {
+			key := args[1]
+			value := args[2]
+			dict[key] = value
+			_, err = conn.Write([]byte("+OK\r\n"))
+		} else if cmd == "GET" {
+			key := args[1]
+			val, ok := dict[key]
+			if !ok {
+				_, err = conn.Write([]byte("$-1\r\n"))
+			}
+			_, err = conn.Write([]byte(encode(val)))
 		}
 
 		if err != nil {
