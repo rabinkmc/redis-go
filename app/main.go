@@ -4,23 +4,49 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 )
+
+func encode(str string) string {
+	result := fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
+	return result
+}
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 	for {
 		buf := make([]byte, 1024)
 		n, err := conn.Read(buf)
-		fmt.Println("Received data: ", string(buf[:n]))
+		if n == 0 { // EOF
+			return
+		}
 		if err != nil {
 			fmt.Println("Error reading from connection: ", err.Error())
 			return
 		}
-		_, err = conn.Write([]byte("+PONG\r\n"))
+		resp_string := string(buf[:n])
+		params := strings.Split(resp_string, "\r\n")
+
+		args := []string{}
+		for i := 1; i < len(params); i++ {
+			if len(params[i]) > 0 && params[i][0] == '$' {
+				args = append(args, params[i+1])
+				i++
+			}
+		}
+		cmd := args[0]
+		if cmd == "ECHO" {
+			fmt.Println(encode(args[1]))
+			_, err = conn.Write([]byte(encode(args[1])))
+		} else if cmd == "PONG" {
+			_, err = conn.Write([]byte("+PONG\r\n"))
+		}
+
 		if err != nil {
 			fmt.Println("Error writing to connection: ", err.Error())
 			return
 		}
+
 	}
 }
 
