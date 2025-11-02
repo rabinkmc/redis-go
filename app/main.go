@@ -38,7 +38,7 @@ func handleConnection(conn net.Conn) {
 		if cmd == "ECHO" {
 			fmt.Println(encode(args[1]))
 			_, err = conn.Write([]byte(encode(args[1])))
-		} else if cmd == "PONG" {
+		} else if cmd == "PING" {
 			_, err = conn.Write([]byte("+PONG\r\n"))
 		}
 
