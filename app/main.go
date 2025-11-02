@@ -4,10 +4,17 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
-var dict = make(map[string]string)
+type Entry struct {
+	val  string
+	time *time.Time
+}
+
+var dict = make(map[string]Entry)
 
 func encode(str string) string {
 	result := fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
@@ -47,22 +54,36 @@ func handleConnection(conn net.Conn) {
 		} else if cmd == "SET" {
 			key := args[1]
 			value := args[2]
-			dict[key] = value
+			entry := Entry{val: value}
+			if len(args) >= 5 {
+				ex_time := time.Now()
+				if args[3] == "PX" {
+					ms, _ := strconv.Atoi(args[4])
+					ex_time = ex_time.Add(time.Duration(ms) * time.Millisecond)
+				}
+				if args[3] == "EX" {
+					sec, _ := strconv.Atoi(args[4])
+					ex_time = ex_time.Add(time.Duration(sec) * time.Second)
+				}
+				entry.time = &ex_time
+			}
+			dict[key] = entry
 			_, err = conn.Write([]byte("+OK\r\n"))
 		} else if cmd == "GET" {
 			key := args[1]
-			val, ok := dict[key]
-			if !ok {
+			entry, ok := dict[key]
+			fmt.Printf("time: %v", entry.time)
+			if !ok || (entry.time != nil && entry.time.Before(time.Now())) {
 				_, err = conn.Write([]byte("$-1\r\n"))
+				return
 			}
-			_, err = conn.Write([]byte(encode(val)))
+			_, err = conn.Write([]byte(encode(entry.val)))
 		}
 
 		if err != nil {
 			fmt.Println("Error writing to connection: ", err.Error())
 			return
 		}
-
 	}
 }
 
