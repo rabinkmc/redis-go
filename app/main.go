@@ -121,6 +121,7 @@ func handleConnection(conn net.Conn) {
 
 			if (start > end) || (start > n) {
 				_, err = conn.Write(empty_arr)
+				return
 			}
 
 			if end >= n {
