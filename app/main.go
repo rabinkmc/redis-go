@@ -27,6 +27,16 @@ func encode(str string) string {
 	result := fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
 	return result
 }
+func encode_list(strs []string) string {
+	if len(strs) == 0 {
+		return "*0\r\n"
+	}
+	result := fmt.Sprintf("*%d\r\n", len(strs))
+	for _, str := range strs {
+		result += fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
+	}
+	return result
+}
 
 func RPUSH(key string, values []string) int {
 	entry := dict[key]
@@ -96,6 +106,30 @@ func handleConnection(conn net.Conn) {
 			n = RPUSH(args[1], args[2:])
 			resp := fmt.Sprintf(":%d\r\n", n)
 			conn.Write([]byte(resp))
+		} else if cmd == "LRANGE" {
+			empty_arr := []byte("*0\r\n")
+			key := args[1]
+			entry, ok := dict[key]
+			if !ok {
+				_, err = conn.Write(empty_arr)
+				return
+			}
+
+			start, _ := strconv.Atoi(args[2])
+			end, _ := strconv.Atoi(args[3])
+			n := len(entry.list)
+
+			if (start > end) || (start > n) {
+				_, err = conn.Write(empty_arr)
+			}
+
+			if end >= n {
+				end = n - 1
+			}
+			lrange := entry.list[start : end+1]
+
+			resp := encode_list(lrange)
+			_, err = conn.Write([]byte(resp))
 		}
 
 		if err != nil {
