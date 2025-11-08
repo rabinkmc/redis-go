@@ -28,9 +28,11 @@ func encode(str string) string {
 	return result
 }
 
-func RPUSH(key, value string) int {
+func RPUSH(key string, values []string) int {
 	entry := dict[key]
-	entry.list = append(entry.list, value)
+	for _, value := range values {
+		entry.list = append(entry.list, value)
+	}
 	dict[key] = entry
 	return len(entry.list)
 }
@@ -93,7 +95,7 @@ func handleConnection(conn net.Conn) {
 			}
 			_, err = conn.Write([]byte(encode(entry.val)))
 		} else if cmd == "RPUSH" {
-			n = RPUSH(args[1], args[2])
+			n = RPUSH(args[1], args[2:])
 			resp := fmt.Sprintf(":%d\r\n", n)
 			conn.Write([]byte(resp))
 		}
