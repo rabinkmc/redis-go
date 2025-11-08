@@ -30,9 +30,7 @@ func encode(str string) string {
 
 func RPUSH(key string, values []string) int {
 	entry := dict[key]
-	for _, value := range values {
-		entry.list = append(entry.list, value)
-	}
+	entry.list = append(entry.list, values...)
 	dict[key] = entry
 	return len(entry.list)
 }
