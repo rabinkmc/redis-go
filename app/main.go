@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strconv"
@@ -11,7 +12,13 @@ import (
 
 type Entry struct {
 	val  string
+	list []string
 	time *time.Time
+}
+
+type Redis struct {
+	conn net.Conn
+	dict map[string]Entry
 }
 
 var dict = make(map[string]Entry)
@@ -19,6 +26,13 @@ var dict = make(map[string]Entry)
 func encode(str string) string {
 	result := fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
 	return result
+}
+
+func RPUSH(key, value string) int {
+	entry := dict[key]
+	entry.list = append(entry.list, value)
+	dict[key] = entry
+	return len(entry.list)
 }
 
 func handleConnection(conn net.Conn) {
@@ -43,8 +57,8 @@ func handleConnection(conn net.Conn) {
 				i++
 			}
 		}
-		fmt.Println(args)
-		cmd := args[0]
+		log.Println(args)
+		cmd := strings.ToUpper(args[0])
 
 		if cmd == "ECHO" {
 			fmt.Println(encode(args[1]))
@@ -78,6 +92,10 @@ func handleConnection(conn net.Conn) {
 				return
 			}
 			_, err = conn.Write([]byte(encode(entry.val)))
+		} else if cmd == "RPUSH" {
+			n = RPUSH(args[1], args[2])
+			resp := fmt.Sprintf(":%d\r\n", n)
+			conn.Write([]byte(resp))
 		}
 
 		if err != nil {
