@@ -51,11 +51,11 @@ func handleConnection(conn net.Conn) {
 		buf := make([]byte, 1024)
 		n, err := conn.Read(buf)
 		if n == 0 { // EOF
-			return
+			continue
 		}
 		if err != nil {
 			fmt.Println("Error reading from connection: ", err.Error())
-			return
+			continue
 		}
 		resp_string := string(buf[:n])
 		params := strings.Split(resp_string, "\r\n")
@@ -112,7 +112,7 @@ func handleConnection(conn net.Conn) {
 			// key doesn't exist
 			if !ok {
 				_, err = conn.Write(empty_arr)
-				return
+				continue
 			}
 
 			start, _ := strconv.Atoi(args[2])
@@ -121,7 +121,7 @@ func handleConnection(conn net.Conn) {
 
 			if (start > end) || (start > n) {
 				_, err = conn.Write(empty_arr)
-				return
+				continue
 			}
 
 			// fix the upper bounds
@@ -132,7 +132,6 @@ func handleConnection(conn net.Conn) {
 			log.Printf("%v", lrange)
 
 			resp := encode_list(lrange)
-			print(resp)
 			_, err = conn.Write([]byte(resp))
 		}
 
