@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"strconv"
@@ -88,6 +87,44 @@ func (serer *Redis) handleRPUSH(key string, values []string) string {
 	return resp
 }
 
+func (server *Redis) handleLRANGE(args []string) string {
+	key := args[0]
+	empty_arr := "*0\r\n"
+	entry, ok := dict[key]
+	// key doesn't exist
+	if !ok {
+		return empty_arr
+	}
+
+	start, _ := strconv.Atoi(args[1])
+	end, _ := strconv.Atoi(args[2])
+	n := len(entry.list)
+	if start < 0 {
+		start = n + start
+		if start < 0 {
+			start = 0
+		}
+	}
+	if end < 0 {
+		end = n + end
+		if end < 0 {
+			end = 0
+		}
+	}
+	if (start > end) || (start > n) {
+		return empty_arr
+	}
+
+	// fix the upper bounds
+	if end >= n {
+		end = n - 1
+	}
+	lrange := entry.list[start : end+1]
+
+	resp := encode_list(lrange)
+	return resp
+}
+
 func (server *Redis) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	for {
@@ -111,64 +148,22 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			}
 		}
 		cmd := strings.ToUpper(args[0])
+		resp := ""
 
 		if cmd == "ECHO" {
-			resp := server.handleECHO(args[1])
-			_, err = conn.Write([]byte(resp))
-
+			resp = server.handleECHO(args[1])
 		} else if cmd == "PING" {
-			resp := server.handlePING()
-			_, err = conn.Write([]byte(resp))
+			resp = server.handlePING()
 		} else if cmd == "SET" {
-			resp := server.handleSET(args[1:])
-			_, err = conn.Write([]byte(resp))
+			resp = server.handleSET(args[1:])
 		} else if cmd == "GET" {
-			resp := server.handleGET(args[1])
-			_, err = conn.Write([]byte(resp))
+			resp = server.handleGET(args[1])
 		} else if cmd == "RPUSH" {
-			resp := server.handleRPUSH(args[1], args[2:])
-			conn.Write([]byte(resp))
+			resp = server.handleRPUSH(args[1], args[2:])
 		} else if cmd == "LRANGE" {
-			empty_arr := []byte("*0\r\n")
-			key := args[1]
-			entry, ok := dict[key]
-			// key doesn't exist
-			if !ok {
-				_, err = conn.Write(empty_arr)
-				continue
-			}
-
-			start, _ := strconv.Atoi(args[2])
-			end, _ := strconv.Atoi(args[3])
-			n := len(entry.list)
-			if start < 0 {
-				start = n + start
-				if start < 0 {
-					start = 0
-				}
-			}
-			if end < 0 {
-				end = n + end
-				if end < 0 {
-					end = 0
-				}
-			}
-			if (start > end) || (start > n) {
-				_, err = conn.Write(empty_arr)
-				continue
-			}
-
-			// fix the upper bounds
-			if end >= n {
-				end = n - 1
-			}
-			lrange := entry.list[start : end+1]
-			log.Printf("%v", lrange)
-
-			resp := encode_list(lrange)
-			_, err = conn.Write([]byte(resp))
+			resp = server.handleLRANGE(args[1:])
 		}
-
+		_, err = conn.Write([]byte(resp))
 		if err != nil {
 			fmt.Println("Error writing to connection: ", err.Error())
 			return
