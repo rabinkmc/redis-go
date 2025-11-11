@@ -50,13 +50,12 @@ func (server *Redis) handleSET(args []string) string {
 	key := args[0]
 	value := args[1]
 	entry := Entry{val: value}
-	if len(args) >= 5 {
+	if len(args) >= 4 {
 		ex_time := time.Now()
 		if args[2] == "PX" {
 			ms, _ := strconv.Atoi(args[3])
 			ex_time = ex_time.Add(time.Duration(ms) * time.Millisecond)
-		}
-		if args[2] == "EX" {
+		} else if args[2] == "EX" {
 			sec, _ := strconv.Atoi(args[3])
 			ex_time = ex_time.Add(time.Duration(sec) * time.Second)
 		}
@@ -69,7 +68,11 @@ func (server *Redis) handleSET(args []string) string {
 func (server *Redis) handleGET(key string) string {
 	entry, ok := server.dict[key]
 	fmt.Printf("time: %v", entry.time)
-	if !ok || (entry.time != nil && entry.time.Before(time.Now())) {
+	if !ok {
+		return "$-1\r\n"
+	}
+	if entry.time != nil && entry.time.Before(time.Now()) {
+		delete(server.dict, key)
 		return "$-1\r\n"
 	}
 
