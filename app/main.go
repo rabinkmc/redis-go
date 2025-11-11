@@ -120,32 +120,11 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			resp := server.handlePING()
 			_, err = conn.Write([]byte(resp))
 		} else if cmd == "SET" {
-			key := args[1]
-			value := args[2]
-			entry := Entry{val: value}
-			if len(args) >= 5 {
-				ex_time := time.Now()
-				if args[3] == "PX" {
-					ms, _ := strconv.Atoi(args[4])
-					ex_time = ex_time.Add(time.Duration(ms) * time.Millisecond)
-				}
-				if args[3] == "EX" {
-					sec, _ := strconv.Atoi(args[4])
-					ex_time = ex_time.Add(time.Duration(sec) * time.Second)
-				}
-				entry.time = &ex_time
-			}
-			dict[key] = entry
-			_, err = conn.Write([]byte("+OK\r\n"))
+			resp := server.handleSET(args[1:])
+			_, err = conn.Write([]byte(resp))
 		} else if cmd == "GET" {
-			key := args[1]
-			entry, ok := dict[key]
-			fmt.Printf("time: %v", entry.time)
-			if !ok || (entry.time != nil && entry.time.Before(time.Now())) {
-				_, err = conn.Write([]byte("$-1\r\n"))
-				return
-			}
-			_, err = conn.Write([]byte(encode(entry.val)))
+			resp := server.handleGET(args[1])
+			_, err = conn.Write([]byte(resp))
 		} else if cmd == "RPUSH" {
 			resp := server.handleRPUSH(args[1], args[2:])
 			conn.Write([]byte(resp))
