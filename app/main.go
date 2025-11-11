@@ -67,7 +67,6 @@ func handleConnection(conn net.Conn) {
 				i++
 			}
 		}
-		log.Println(args)
 		cmd := strings.ToUpper(args[0])
 
 		if cmd == "ECHO" {
@@ -110,6 +109,7 @@ func handleConnection(conn net.Conn) {
 			empty_arr := []byte("*0\r\n")
 			key := args[1]
 			entry, ok := dict[key]
+			// key doesn't exist
 			if !ok {
 				_, err = conn.Write(empty_arr)
 				return
@@ -124,12 +124,15 @@ func handleConnection(conn net.Conn) {
 				return
 			}
 
+			// fix the upper bounds
 			if end >= n {
 				end = n - 1
 			}
 			lrange := entry.list[start : end+1]
+			log.Printf("%v", lrange)
 
 			resp := encode_list(lrange)
+			print(resp)
 			_, err = conn.Write([]byte(resp))
 		}
 
