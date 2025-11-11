@@ -23,8 +23,6 @@ func NewRedis() *Redis {
 	return &Redis{dict: make(map[string]Entry)}
 }
 
-var dict = make(map[string]Entry)
-
 func encode(str string) string {
 	result := fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
 	return result
@@ -64,12 +62,12 @@ func (server *Redis) handleSET(args []string) string {
 		}
 		entry.time = &ex_time
 	}
-	dict[key] = entry
+	server.dict[key] = entry
 	return "+OK\r\n"
 }
 
 func (server *Redis) handleGET(key string) string {
-	entry, ok := dict[key]
+	entry, ok := server.dict[key]
 	fmt.Printf("time: %v", entry.time)
 	if !ok || (entry.time != nil && entry.time.Before(time.Now())) {
 		return "$-1\r\n"
@@ -78,10 +76,10 @@ func (server *Redis) handleGET(key string) string {
 	return encode(entry.val)
 }
 
-func (serer *Redis) handleRPUSH(key string, values []string) string {
-	entry := dict[key]
+func (server *Redis) handleRPUSH(key string, values []string) string {
+	entry := server.dict[key]
 	entry.list = append(entry.list, values...)
-	dict[key] = entry
+	server.dict[key] = entry
 	n := len(entry.list)
 	resp := fmt.Sprintf(":%d\r\n", n)
 	return resp
@@ -90,7 +88,7 @@ func (serer *Redis) handleRPUSH(key string, values []string) string {
 func (server *Redis) handleLRANGE(args []string) string {
 	key := args[0]
 	empty_arr := "*0\r\n"
-	entry, ok := dict[key]
+	entry, ok := server.dict[key]
 	// key doesn't exist
 	if !ok {
 		return empty_arr
