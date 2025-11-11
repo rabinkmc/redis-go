@@ -118,7 +118,18 @@ func handleConnection(conn net.Conn) {
 			start, _ := strconv.Atoi(args[2])
 			end, _ := strconv.Atoi(args[3])
 			n := len(entry.list)
-
+			if start < 0 {
+				start = n + start
+				if start < 0 {
+					start = 0
+				}
+			}
+			if end < 0 {
+				end = n + end
+				if end < 0 {
+					end = 0
+				}
+			}
 			if (start > end) || (start > n) {
 				_, err = conn.Write(empty_arr)
 				continue
