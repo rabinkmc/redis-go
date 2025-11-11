@@ -17,8 +17,11 @@ type Entry struct {
 }
 
 type Redis struct {
-	conn net.Conn
 	dict map[string]Entry
+}
+
+func NewRedis() *Redis {
+	return &Redis{dict: make(map[string]Entry)}
 }
 
 var dict = make(map[string]Entry)
@@ -38,14 +41,54 @@ func encode_list(strs []string) string {
 	return result
 }
 
-func RPUSH(key string, values []string) int {
+func (server *Redis) handlePING() string {
+	return "+PONG\r\n"
+}
+
+func (server *Redis) handleECHO(arg string) string {
+	return encode(arg)
+}
+
+func (server *Redis) handleSET(args []string) string {
+	key := args[0]
+	value := args[1]
+	entry := Entry{val: value}
+	if len(args) >= 5 {
+		ex_time := time.Now()
+		if args[2] == "PX" {
+			ms, _ := strconv.Atoi(args[3])
+			ex_time = ex_time.Add(time.Duration(ms) * time.Millisecond)
+		}
+		if args[2] == "EX" {
+			sec, _ := strconv.Atoi(args[3])
+			ex_time = ex_time.Add(time.Duration(sec) * time.Second)
+		}
+		entry.time = &ex_time
+	}
+	dict[key] = entry
+	return "+OK\r\n"
+}
+
+func (server *Redis) handleGET(key string) string {
+	entry, ok := dict[key]
+	fmt.Printf("time: %v", entry.time)
+	if !ok || (entry.time != nil && entry.time.Before(time.Now())) {
+		return "$-1\r\n"
+	}
+
+	return encode(entry.val)
+}
+
+func (serer *Redis) handleRPUSH(key string, values []string) string {
 	entry := dict[key]
 	entry.list = append(entry.list, values...)
 	dict[key] = entry
-	return len(entry.list)
+	n := len(entry.list)
+	resp := fmt.Sprintf(":%d\r\n", n)
+	return resp
 }
 
-func handleConnection(conn net.Conn) {
+func (server *Redis) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	for {
 		buf := make([]byte, 1024)
@@ -70,10 +113,12 @@ func handleConnection(conn net.Conn) {
 		cmd := strings.ToUpper(args[0])
 
 		if cmd == "ECHO" {
-			fmt.Println(encode(args[1]))
-			_, err = conn.Write([]byte(encode(args[1])))
+			resp := server.handleECHO(args[1])
+			_, err = conn.Write([]byte(resp))
+
 		} else if cmd == "PING" {
-			_, err = conn.Write([]byte("+PONG\r\n"))
+			resp := server.handlePING()
+			_, err = conn.Write([]byte(resp))
 		} else if cmd == "SET" {
 			key := args[1]
 			value := args[2]
@@ -102,8 +147,7 @@ func handleConnection(conn net.Conn) {
 			}
 			_, err = conn.Write([]byte(encode(entry.val)))
 		} else if cmd == "RPUSH" {
-			n = RPUSH(args[1], args[2:])
-			resp := fmt.Sprintf(":%d\r\n", n)
+			resp := server.handleRPUSH(args[1], args[2:])
 			conn.Write([]byte(resp))
 		} else if cmd == "LRANGE" {
 			empty_arr := []byte("*0\r\n")
@@ -155,6 +199,7 @@ func handleConnection(conn net.Conn) {
 
 func main() {
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
+	server := NewRedis()
 	if err != nil {
 		fmt.Println("Failed to bind to port 6379")
 		os.Exit(1)
@@ -165,6 +210,6 @@ func main() {
 			fmt.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
 		}
-		go handleConnection(conn)
+		go server.handleConnection(conn)
 	}
 }
