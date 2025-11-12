@@ -92,7 +92,11 @@ func (server *Redis) handleLPUSH(args []string) string {
 	key := args[0]
 	values := args[1:]
 	entry := server.dict[key]
-	entry.list = append(values, entry.list...)
+	items := []string{}
+	for i := len(values) - 1; i > -1; i-- {
+		items = append(items, values[i])
+	}
+	entry.list = append(items, entry.list...)
 	server.dict[key] = entry
 	n := len(entry.list)
 	resp := fmt.Sprintf(":%d\r\n", n)
