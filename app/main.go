@@ -161,6 +161,7 @@ func (server *Redis) handleLPOP(key string) string {
 	}
 	front := entry.list[0]
 	entry.list = entry.list[1:]
+	server.dict[key] = entry
 	return encode(front)
 }
 
