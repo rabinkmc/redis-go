@@ -88,6 +88,17 @@ func (server *Redis) handleRPUSH(key string, values []string) string {
 	return resp
 }
 
+func (server *Redis) handleLPUSH(args []string) string {
+	key := args[0]
+	values := args[1:]
+	entry := server.dict[key]
+	entry.list = append(values, entry.list...)
+	server.dict[key] = entry
+	n := len(entry.list)
+	resp := fmt.Sprintf(":%d\r\n", n)
+	return resp
+}
+
 func (server *Redis) handleLRANGE(args []string) string {
 	key := args[0]
 	empty_arr := "*0\r\n"
@@ -163,6 +174,8 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			resp = server.handleRPUSH(args[1], args[2:])
 		} else if cmd == "LRANGE" {
 			resp = server.handleLRANGE(args[1:])
+		} else if cmd == "LPUSH" {
+			resp = server.handleLPUSH(args[1:])
 		}
 		_, err = conn.Write([]byte(resp))
 		if err != nil {
