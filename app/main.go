@@ -154,15 +154,28 @@ func (server *Redis) handleLLEN(key string) string {
 	return resp
 }
 
-func (server *Redis) handleLPOP(key string) string {
+func (server *Redis) handleLPOP(args []string) string {
+	key := args[0]
 	entry, ok := server.dict[key]
 	if !ok || len(entry.list) == 0 {
 		return "$-1\r\n"
 	}
-	front := entry.list[0]
-	entry.list = entry.list[1:]
-	server.dict[key] = entry
-	return encode(front)
+	n := len(entry.list)
+	if len(args) >= 2 {
+		idx, _ := strconv.Atoi(args[1])
+		if idx > n {
+			idx = n
+		}
+		front := entry.list[:idx]
+		entry.list = entry.list[idx:]
+		server.dict[key] = entry
+		return encode_list(front)
+	} else {
+		front := entry.list[0]
+		entry.list = entry.list[1:]
+		server.dict[key] = entry
+		return encode(front)
+	}
 }
 
 func (server *Redis) handleConnection(conn net.Conn) {
@@ -208,7 +221,7 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		case "LLEN":
 			resp = server.handleLLEN(args[1])
 		case "LPOP":
-			resp = server.handleLPOP(args[1])
+			resp = server.handleLPOP(args[1:])
 		default:
 			resp = "err\r\n"
 		}
