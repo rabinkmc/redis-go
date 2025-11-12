@@ -79,7 +79,9 @@ func (server *Redis) handleGET(key string) string {
 	return encode(entry.val)
 }
 
-func (server *Redis) handleRPUSH(key string, values []string) string {
+func (server *Redis) handleRPUSH(args []string) string {
+	key := args[0]
+	values := args[1:]
 	entry := server.dict[key]
 	entry.list = append(entry.list, values...)
 	server.dict[key] = entry
@@ -141,6 +143,17 @@ func (server *Redis) handleLRANGE(args []string) string {
 	return resp
 }
 
+func (server *Redis) handleLLEN(key string) string {
+	empty_arr := "*0\r\n"
+	entry, ok := server.dict[key]
+	if !ok {
+		return empty_arr
+	}
+	var n int = len(entry.list)
+	resp := fmt.Sprintf(":%d\r\n", n)
+	return resp
+}
+
 func (server *Redis) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	for {
@@ -175,11 +188,13 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		} else if cmd == "GET" {
 			resp = server.handleGET(args[1])
 		} else if cmd == "RPUSH" {
-			resp = server.handleRPUSH(args[1], args[2:])
+			resp = server.handleRPUSH(args[1:])
 		} else if cmd == "LRANGE" {
 			resp = server.handleLRANGE(args[1:])
 		} else if cmd == "LPUSH" {
 			resp = server.handleLPUSH(args[1:])
+		} else if cmd == "LLEN" {
+			resp = server.handleLLEN(args[1])
 		}
 		_, err = conn.Write([]byte(resp))
 		if err != nil {
