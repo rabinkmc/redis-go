@@ -144,10 +144,10 @@ func (server *Redis) handleLRANGE(args []string) string {
 }
 
 func (server *Redis) handleLLEN(key string) string {
-	empty_arr := "*0\r\n"
+	zero := ":0\r\n"
 	entry, ok := server.dict[key]
 	if !ok {
-		return empty_arr
+		return zero
 	}
 	var n int = len(entry.list)
 	resp := fmt.Sprintf(":%d\r\n", n)
