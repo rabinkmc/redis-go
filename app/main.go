@@ -154,6 +154,16 @@ func (server *Redis) handleLLEN(key string) string {
 	return resp
 }
 
+func (server *Redis) handleLPOP(key string) string {
+	entry, ok := server.dict[key]
+	if !ok || len(entry.list) == 0 {
+		return "$-1\r\n"
+	}
+	front := entry.list[0]
+	entry.list = entry.list[1:]
+	return encode(front)
+}
+
 func (server *Redis) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	for {
@@ -179,24 +189,30 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		cmd := strings.ToUpper(args[0])
 		resp := ""
 
-		if cmd == "ECHO" {
+		switch cmd {
+		case "ECHO":
 			resp = server.handleECHO(args[1])
-		} else if cmd == "PING" {
+		case "PING":
 			resp = server.handlePING()
-		} else if cmd == "SET" {
+		case "SET":
 			resp = server.handleSET(args[1:])
-		} else if cmd == "GET" {
+		case "GET":
 			resp = server.handleGET(args[1])
-		} else if cmd == "RPUSH" {
+		case "RPUSH":
 			resp = server.handleRPUSH(args[1:])
-		} else if cmd == "LRANGE" {
+		case "LRANGE":
 			resp = server.handleLRANGE(args[1:])
-		} else if cmd == "LPUSH" {
+		case "LPUSH":
 			resp = server.handleLPUSH(args[1:])
-		} else if cmd == "LLEN" {
+		case "LLEN":
 			resp = server.handleLLEN(args[1])
+		case "LPOP":
+			resp = server.handleLPOP(args[1])
+		default:
+			resp = "err\r\n"
 		}
 		_, err = conn.Write([]byte(resp))
+
 		if err != nil {
 			fmt.Println("Error writing to connection: ", err.Error())
 			return
