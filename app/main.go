@@ -211,8 +211,8 @@ func (server *Redis) handleLPOP(args []string) string {
 func (server *Redis) handleBLPOP(args []string) string {
 	server.mu.Lock()
 	key := args[0]
-	timeoutSec, _ := strconv.Atoi(args[1])
-	timeout := time.Duration(timeoutSec) * time.Second
+	timeoutSec, _ := strconv.ParseFloat(args[1], 64)
+	timeout := time.Duration(timeoutSec*1000) * time.Millisecond
 	entry, ok := server.dict[key]
 	if ok && len(entry.list) > 0 {
 		val := entry.list[0]
@@ -224,7 +224,7 @@ func (server *Redis) handleBLPOP(args []string) string {
 	ch := make(chan string)
 	server.waiters[key] = ch
 	server.mu.Unlock()
-	if timeout == 0 {
+	if timeout == 0.0 {
 		val := <-ch
 		return encode_list([]string{key, val})
 	}
@@ -233,9 +233,7 @@ func (server *Redis) handleBLPOP(args []string) string {
 		return encode_list([]string{key, val})
 	case <-time.After(timeout):
 		server.mu.Lock()
-		if w, ok := server.waiters[key]; ok && w == ch {
-			delete(server.waiters, key)
-		}
+		delete(server.waiters, key)
 		server.mu.Unlock()
 		return "$-1\r\n"
 	}
