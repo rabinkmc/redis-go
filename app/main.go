@@ -235,7 +235,7 @@ func (server *Redis) handleBLPOP(args []string) string {
 		server.mu.Lock()
 		delete(server.waiters, key)
 		server.mu.Unlock()
-		return "$-1\r\n"
+		return "*-1\r\n"
 	}
 
 }
