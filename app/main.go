@@ -233,7 +233,9 @@ func (server *Redis) handleBLPOP(args []string) string {
 		return encode_list([]string{key, val})
 	case <-time.After(timeout):
 		server.mu.Lock()
-		delete(server.waiters, key)
+		if w, ok := server.waiters[key]; ok && w == ch {
+			delete(server.waiters, key)
+		}
 		server.mu.Unlock()
 		return "$-1\r\n"
 	}
