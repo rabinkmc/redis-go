@@ -221,11 +221,6 @@ func (server *Redis) handleBLPOP(args []string) string {
 		server.mu.Unlock()
 		return encode_list([]string{key, val})
 	}
-	_, exists := server.waiters[key]
-	if exists {
-		server.mu.Unlock()
-		return ""
-	}
 	ch := make(chan string)
 	server.waiters[key] = ch
 	server.mu.Unlock()
