@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,11 +17,13 @@ type Entry struct {
 }
 
 type Redis struct {
-	dict map[string]Entry
+	dict    map[string]Entry
+	mu      sync.Mutex
+	waiters map[string]chan string
 }
 
 func NewRedis() *Redis {
-	return &Redis{dict: make(map[string]Entry)}
+	return &Redis{dict: make(map[string]Entry), waiters: make(map[string]chan string)}
 }
 
 func encode(str string) string {
@@ -80,17 +83,33 @@ func (server *Redis) handleGET(key string) string {
 }
 
 func (server *Redis) handleRPUSH(args []string) string {
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	key := args[0]
 	values := args[1:]
 	entry := server.dict[key]
+
 	entry.list = append(entry.list, values...)
 	server.dict[key] = entry
 	n := len(entry.list)
+
+	if ch, exists := server.waiters[key]; exists {
+		entry := server.dict[key]
+		val := entry.list[0]
+		entry.list = entry.list[1:]
+		server.dict[key] = entry
+		delete(server.waiters, key)
+		go func() {
+			ch <- val
+		}()
+	}
 	resp := fmt.Sprintf(":%d\r\n", n)
 	return resp
 }
 
 func (server *Redis) handleLPUSH(args []string) string {
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	key := args[0]
 	values := args[1:]
 	entry := server.dict[key]
@@ -101,6 +120,17 @@ func (server *Redis) handleLPUSH(args []string) string {
 	entry.list = append(items, entry.list...)
 	server.dict[key] = entry
 	n := len(entry.list)
+
+	if ch, exists := server.waiters[key]; exists {
+		entry := server.dict[key]
+		val := values[len(values)-1]
+		entry.list = entry.list[1:]
+		server.dict[key] = entry
+		delete(server.waiters, key)
+		go func() {
+			ch <- val
+		}()
+	}
 	resp := fmt.Sprintf(":%d\r\n", n)
 	return resp
 }
@@ -137,9 +167,9 @@ func (server *Redis) handleLRANGE(args []string) string {
 	if end >= n {
 		end = n - 1
 	}
-	lrange := entry.list[start : end+1]
+	lslice := entry.list[start : end+1]
 
-	resp := encode_list(lrange)
+	resp := encode_list(lslice)
 	return resp
 }
 
@@ -176,6 +206,29 @@ func (server *Redis) handleLPOP(args []string) string {
 		server.dict[key] = entry
 		return encode(front)
 	}
+}
+
+func (server *Redis) handleBLPOP(args []string) string {
+	server.mu.Lock()
+	key := args[0]
+	entry, ok := server.dict[key]
+	if ok && len(entry.list) > 0 {
+		val := entry.list[0]
+		entry.list = entry.list[1:]
+		server.dict[key] = entry
+		server.mu.Unlock()
+		return encode_list([]string{key, val})
+	}
+	_, exists := server.waiters[key]
+	if exists {
+		server.mu.Unlock()
+		return ""
+	}
+	ch := make(chan string)
+	server.waiters[key] = ch
+	server.mu.Unlock()
+	val := <-ch
+	return encode_list([]string{key, val})
 }
 
 func (server *Redis) handleConnection(conn net.Conn) {
@@ -222,6 +275,8 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			resp = server.handleLLEN(args[1])
 		case "LPOP":
 			resp = server.handleLPOP(args[1:])
+		case "BLPOP":
+			resp = server.handleBLPOP(args[1:])
 		default:
 			resp = "err\r\n"
 		}
