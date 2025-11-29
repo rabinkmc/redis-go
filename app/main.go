@@ -295,7 +295,7 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		case "BLPOP":
 			resp = server.handleBLPOP(args[1:])
 		case "TYPE":
-			resp = server.HandleTYPE(args[1:])
+			resp = server.handleTYPE(args[1:])
 		default:
 			resp = "err\r\n"
 		}
