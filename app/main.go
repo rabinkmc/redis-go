@@ -243,9 +243,9 @@ func (server *Redis) handleTYPE(args []string) string {
 	key := args[0]
 	_, ok := server.dict[key]
 	if !ok {
-		return "none"
+		return encode("none")
 	}
-	return "string"
+	return encode("string")
 }
 
 func (server *Redis) handleConnection(conn net.Conn) {
