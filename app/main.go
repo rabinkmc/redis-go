@@ -239,6 +239,14 @@ func (server *Redis) handleBLPOP(args []string) string {
 	}
 
 }
+func (server *Redis) handleTYPE(args []string) string {
+	key := args[0]
+	_, ok := server.dict[key]
+	if !ok {
+		return "none"
+	}
+	return "string"
+}
 
 func (server *Redis) handleConnection(conn net.Conn) {
 	defer conn.Close()
@@ -286,6 +294,8 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			resp = server.handleLPOP(args[1:])
 		case "BLPOP":
 			resp = server.handleBLPOP(args[1:])
+		case "TYPE":
+			resp = server.HandleTYPE(args[1:])
 		default:
 			resp = "err\r\n"
 		}
