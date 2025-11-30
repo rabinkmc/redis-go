@@ -1,11 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
 
 func TestXADD(t *testing.T) {
+	error_str := fmt.Sprintf("The ID specified in XADD is equal or smaller than the target stream top item")
 	tests := []struct {
 		name string
 		in   []string
@@ -23,18 +25,13 @@ func TestXADD(t *testing.T) {
 		},
 		{
 			name: "XADD",
-			in:   []string{"stream_key", "1-4", "temperature", "36", "humidity", "95"},
-			want: encode("1-4"),
-		},
-		{
-			name: "XADD",
-			in:   []string{"stream_key", "1-*", "temperature", "36", "humidity", "95"},
-			want: encode("1-5"),
+			in:   []string{"stream_key", "3-*", "temperature", "36", "humidity", "95"},
+			want: encode("3-0"),
 		},
 		{
 			name: "XADD",
 			in:   []string{"stream_key", "2-*", "temperature", "36", "humidity", "95"},
-			want: encode("2-0"),
+			want: simple_err(error_str),
 		},
 	}
 
