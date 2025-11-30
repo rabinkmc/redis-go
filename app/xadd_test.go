@@ -13,18 +13,23 @@ func TestXADD(t *testing.T) {
 	}{
 		{
 			name: "XADD",
-			in:   []string{"stream_key", "1526919030474-0", "temperature", "36", "humidity", "95"},
-			want: encode("1526919030474-0"),
-		},
-		{
-			name: "XADD",
 			in:   []string{"stream_key", "1-*", "temperature", "36", "humidity", "95"},
 			want: encode("1-0"),
 		},
 		{
 			name: "XADD",
-			in:   []string{"stream_key", "1-3", "temperature", "36", "humidity", "95"},
-			want: encode("1-3"),
+			in:   []string{"stream_key", "1-*", "temperature", "36", "humidity", "95"},
+			want: encode("1-1"),
+		},
+		{
+			name: "XADD",
+			in:   []string{"stream_key", "1-4", "temperature", "36", "humidity", "95"},
+			want: encode("1-4"),
+		},
+		{
+			name: "XADD",
+			in:   []string{"stream_key", "1-*", "temperature", "36", "humidity", "95"},
+			want: encode("1-5"),
 		},
 		{
 			name: "XADD",

@@ -289,13 +289,13 @@ func validate_id(streams []Stream, id string) (string, string) {
 				s2 = 0
 			}
 		} else {
-			prev_id := streams[len(streams)-1].id
+			prev_id := (streams)[len(streams)-1].id
 			prev_id_parts := strings.Split(prev_id, "-")
 			prev_seq, _ := strconv.ParseInt(prev_id_parts[1], 10, 64)
 			s2 = prev_seq + 1
 		}
-		new_id = parts[0] + "-" + strconv.FormatInt(s2, 10)
 	}
+	new_id = fmt.Sprintf("%d-%d", t2, s2)
 	if t2 <= 0 && s2 <= 0 {
 		return new_id, fmt.Sprintf("The ID specified in XADD must be greater than 0-0")
 	}
@@ -327,8 +327,11 @@ func (server *Redis) handleXADD(args []string) string {
 	if entry.streams == nil {
 		entry.streams = make(map[string][]Stream)
 	}
+	parts := strings.Split(id, "-")
 
-	id, error_str := validate_id(entry.streams[id], id)
+	millitime := parts[0]
+
+	id, error_str := validate_id(entry.streams[millitime], id)
 	if error_str != "" {
 		return simple_err(error_str)
 	}
@@ -339,7 +342,7 @@ func (server *Redis) handleXADD(args []string) string {
 		items[key] = val
 		i = i + 2
 	}
-	entry.streams[id] = append(entry.streams[id], Stream{id: id, items: items})
+	entry.streams[millitime] = append(entry.streams[millitime], Stream{id: id, items: items})
 	server.dict[stream_key] = entry
 
 	return encode(id)
