@@ -45,3 +45,23 @@ func TestXADD(t *testing.T) {
 		})
 	}
 }
+
+func TestXADDA(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+	}{
+		{
+			name: "XADD",
+			in:   []string{"stream_key", "*", "temperature", "36", "humidity", "95"},
+		},
+	}
+
+	server := NewRedis()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := server.handleXADD(tt.in)
+			fmt.Printf("%s", got)
+		})
+	}
+}
