@@ -16,10 +16,10 @@ type Stream struct {
 }
 
 type Entry struct {
-	val    string
-	list   []string
-	stream []Stream
-	time   *time.Time
+	val     string
+	list    []string
+	streams []Stream
+	time    *time.Time
 }
 
 type Redis struct {
@@ -35,6 +35,10 @@ func NewRedis() *Redis {
 func encode(str string) string {
 	result := fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
 	return result
+}
+
+func simple_err(str string) string {
+	return fmt.Sprintf("-ERR %s\r\n", str)
 }
 func encode_list(strs []string) string {
 	if len(strs) == 0 {
@@ -254,15 +258,49 @@ func (server *Redis) handleTYPE(args []string) string {
 	}
 	if entry.val != "" {
 		resp = "string"
-	} else if len(entry.stream) > 0 {
+	} else if len(entry.streams) > 0 {
 		resp = "stream"
 	} else if len(entry.list) > 0 {
 		resp = "list"
 	}
 	return fmt.Sprintf("+%s\r\n", resp)
 }
+
+// ms := time.Now().UnixMilli()
+func validate_id(entry Entry, new_id string) string {
+
+	new_id_str := strings.Split(new_id, "-")
+	t2, err := strconv.ParseInt(new_id_str[0], 10, 64)
+	if err != nil {
+		return fmt.Sprintf("Failed to parse time for new ID: %s", new_id_str)
+	}
+	s2, err := strconv.ParseInt(new_id_str[1], 10, 64)
+	if err != nil {
+		return fmt.Sprintf("Failed to parse sequence for new ID: %s", new_id_str)
+	}
+	if t2 <= 0 && s2 <= 0 {
+		return fmt.Sprintf("The ID specified in XADD must be greater than 0-0")
+	}
+
+	if len(entry.streams) == 0 {
+		return ""
+	}
+
+	last_stream := entry.streams[len(entry.streams)-1]
+	top_id_str := strings.Split(last_stream.id, "-")
+	t1, _ := strconv.ParseInt(top_id_str[0], 10, 64)
+	s1, _ := strconv.ParseInt(top_id_str[1], 10, 64)
+
+	time1 := time.UnixMilli(t1)
+	time2 := time.UnixMilli(t2)
+	error_str := fmt.Sprintf("The ID specified in XADD is equal or smaller than the target stream top item")
+	if time2.Before(time1) || (time2.Equal(time1) && s2 <= s1) {
+		return error_str
+	}
+	return ""
+}
+
 func (server *Redis) handleXADD(args []string) string {
-	fmt.Println(args)
 	stream_key := args[0]
 	id := args[1]
 	n := len(args)
@@ -270,13 +308,19 @@ func (server *Redis) handleXADD(args []string) string {
 	entry, _ := server.dict[stream_key]
 	items := make(map[string]string)
 
+	error_str := validate_id(entry, id)
+	if error_str != "" {
+		return simple_err(error_str)
+
+	}
+
 	for i < n {
 		key := args[i]
 		val := args[i+1]
 		items[key] = val
 		i = i + 2
 	}
-	entry.stream = append(entry.stream, Stream{id: id, items: items})
+	entry.streams = append(entry.streams, Stream{id: id, items: items})
 	server.dict[stream_key] = entry
 
 	return encode(id)
