@@ -273,6 +273,15 @@ func (entry *Entry) validate_id(millitime int64, id string) (string, string) {
 	var t2, s2 int64
 	var err error
 	new_id := id
+	if new_id == "*" {
+		unix_time := time.Now().UnixMilli()
+		streams, ok := entry.streams[unix_time]
+		if !ok {
+			return fmt.Sprintf("%d-%d", unix_time, 0), ""
+		}
+		seq, _ := strconv.ParseInt(strings.Split(streams[len(streams)-1].id, "-")[1], 10, 64)
+		return fmt.Sprintf("%d-%d", unix_time, seq+1), ""
+	}
 	parts := strings.Split(new_id, "-")
 	t2, err = strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
