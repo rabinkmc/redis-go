@@ -18,7 +18,7 @@ type Stream struct {
 type Entry struct {
 	val     string
 	list    []string
-	streams []Stream
+	streams map[string][]Stream
 	time    *time.Time
 }
 
@@ -267,7 +267,7 @@ func (server *Redis) handleTYPE(args []string) string {
 }
 
 // ms := time.Now().UnixMilli()
-func validate_id(entry Entry, id string) (string, string) {
+func validate_id(streams []Stream, id string) (string, string) {
 	var t2, s2 int64
 	var err error
 	new_id := id
@@ -282,14 +282,14 @@ func validate_id(entry Entry, id string) (string, string) {
 			return new_id, fmt.Sprintf("Failed to parse sequence for new ID: %s", parts)
 		}
 	} else {
-		if len(entry.streams) == 0 {
+		if len(streams) == 0 {
 			if t2 == 0 {
 				s2 = 1
 			} else {
 				s2 = 0
 			}
 		} else {
-			prev_id := entry.streams[len(entry.streams)-1].id
+			prev_id := streams[len(streams)-1].id
 			prev_id_parts := strings.Split(prev_id, "-")
 			prev_seq, _ := strconv.ParseInt(prev_id_parts[1], 10, 64)
 			s2 = prev_seq + 1
@@ -300,11 +300,11 @@ func validate_id(entry Entry, id string) (string, string) {
 		return new_id, fmt.Sprintf("The ID specified in XADD must be greater than 0-0")
 	}
 
-	if len(entry.streams) == 0 {
+	if len(streams) == 0 {
 		return new_id, ""
 	}
 
-	last_stream := entry.streams[len(entry.streams)-1]
+	last_stream := streams[len(streams)-1]
 	top_id_str := strings.Split(last_stream.id, "-")
 	t1, _ := strconv.ParseInt(top_id_str[0], 10, 64)
 	s1, _ := strconv.ParseInt(top_id_str[1], 10, 64)
@@ -324,12 +324,13 @@ func (server *Redis) handleXADD(args []string) string {
 	n := len(args)
 	i := 2
 	entry, _ := server.dict[stream_key]
+	if entry.streams == nil {
+		entry.streams = make(map[string][]Stream)
+	}
 
-	id, error_str := validate_id(entry, id)
-	fmt.Printf("\nid: %s\n", id)
+	id, error_str := validate_id(entry.streams[id], id)
 	if error_str != "" {
 		return simple_err(error_str)
-
 	}
 	items := make(map[string]string)
 	for i < n {
@@ -338,7 +339,7 @@ func (server *Redis) handleXADD(args []string) string {
 		items[key] = val
 		i = i + 2
 	}
-	entry.streams = append(entry.streams, Stream{id: id, items: items})
+	entry.streams[id] = append(entry.streams[id], Stream{id: id, items: items})
 	server.dict[stream_key] = entry
 
 	return encode(id)
