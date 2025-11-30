@@ -335,6 +335,21 @@ func (entry *Entry) validate_id(millitime int64, id string) (string, string) {
 	return new_id, ""
 }
 
+func bsearch(arr []int64, target int64) int {
+	left, right := 0, len(arr)-1
+	for left <= right {
+		m := left + (right-left)/2
+		if arr[m] == target {
+			return m
+		} else if arr[m] > target {
+			right = m - 1
+		} else {
+			left = m + 1
+		}
+	}
+	return -1
+}
+
 func (server *Redis) handleXADD(args []string) string {
 	stream_key := args[0]
 	id := args[1]
@@ -369,6 +384,30 @@ func (server *Redis) handleXADD(args []string) string {
 	server.dict[stream_key] = entry
 
 	return encode(id)
+}
+
+func (server *Redis) handleXRANGE(args []string) string {
+	key := args[0]
+	entry, _ := server.dict[key]
+	start, _ := strconv.ParseInt(args[1], 10, 64)
+	end, _ := strconv.ParseInt(args[2], 10, 64)
+	start_idx := bsearch(entry.streamMS, start)
+	end_idx := bsearch(entry.streamMS, end)
+
+	result := []string{}
+	for i := start_idx; i <= end_idx; i++ {
+		ms_key := entry.streamMS[i]
+		streams := entry.streams[ms_key]
+		for _, stream := range streams {
+			curr := []string{}
+			for key, value := range stream.items {
+				curr = append(curr, key, value)
+			}
+			curr_str := encode_list([]string{encode(stream.id), encode_list(curr)})
+			result = append(result, curr_str)
+		}
+	}
+	return encode_list(result)
 }
 
 func (server *Redis) handleConnection(conn net.Conn) {
