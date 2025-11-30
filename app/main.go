@@ -267,23 +267,41 @@ func (server *Redis) handleTYPE(args []string) string {
 }
 
 // ms := time.Now().UnixMilli()
-func validate_id(entry Entry, new_id string) string {
-
-	new_id_str := strings.Split(new_id, "-")
-	t2, err := strconv.ParseInt(new_id_str[0], 10, 64)
+func validate_id(entry Entry, id string) (string, string) {
+	var t2, s2 int64
+	var err error
+	new_id := id
+	parts := strings.Split(new_id, "-")
+	t2, err = strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
-		return fmt.Sprintf("Failed to parse time for new ID: %s", new_id_str)
+		return new_id, fmt.Sprintf("Failed to parse time for new ID: %s", parts)
 	}
-	s2, err := strconv.ParseInt(new_id_str[1], 10, 64)
-	if err != nil {
-		return fmt.Sprintf("Failed to parse sequence for new ID: %s", new_id_str)
+	if parts[1] != "*" {
+		s2, err = strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			return new_id, fmt.Sprintf("Failed to parse sequence for new ID: %s", parts)
+		}
+	} else {
+		if len(entry.streams) == 0 {
+			if t2 == 0 {
+				s2 = 1
+			} else {
+				s2 = 0
+			}
+		} else {
+			prev_id := entry.streams[len(entry.streams)-1].id
+			prev_id_parts := strings.Split(prev_id, "-")
+			prev_seq, _ := strconv.ParseInt(prev_id_parts[1], 10, 64)
+			s2 = prev_seq + 1
+		}
+		new_id = parts[0] + "-" + strconv.FormatInt(s2, 10)
 	}
 	if t2 <= 0 && s2 <= 0 {
-		return fmt.Sprintf("The ID specified in XADD must be greater than 0-0")
+		return new_id, fmt.Sprintf("The ID specified in XADD must be greater than 0-0")
 	}
 
 	if len(entry.streams) == 0 {
-		return ""
+		return new_id, ""
 	}
 
 	last_stream := entry.streams[len(entry.streams)-1]
@@ -295,9 +313,9 @@ func validate_id(entry Entry, new_id string) string {
 	time2 := time.UnixMilli(t2)
 	error_str := fmt.Sprintf("The ID specified in XADD is equal or smaller than the target stream top item")
 	if time2.Before(time1) || (time2.Equal(time1) && s2 <= s1) {
-		return error_str
+		return new_id, error_str
 	}
-	return ""
+	return new_id, ""
 }
 
 func (server *Redis) handleXADD(args []string) string {
@@ -306,14 +324,14 @@ func (server *Redis) handleXADD(args []string) string {
 	n := len(args)
 	i := 2
 	entry, _ := server.dict[stream_key]
-	items := make(map[string]string)
 
-	error_str := validate_id(entry, id)
+	id, error_str := validate_id(entry, id)
+	fmt.Printf("\nid: %s\n", id)
 	if error_str != "" {
 		return simple_err(error_str)
 
 	}
-
+	items := make(map[string]string)
 	for i < n {
 		key := args[i]
 		val := args[i+1]
