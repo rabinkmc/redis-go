@@ -10,10 +10,16 @@ import (
 	"time"
 )
 
+type Stream struct {
+	id    string
+	items map[string]string
+}
+
 type Entry struct {
-	val  string
-	list []string
-	time *time.Time
+	val    string
+	list   []string
+	stream []Stream
+	time   *time.Time
 }
 
 type Redis struct {
@@ -241,12 +247,39 @@ func (server *Redis) handleBLPOP(args []string) string {
 }
 func (server *Redis) handleTYPE(args []string) string {
 	key := args[0]
-	_, ok := server.dict[key]
+	entry, ok := server.dict[key]
 	resp := "none"
-	if ok {
+	if !ok {
+		return fmt.Sprintf("+%s\r\n", resp)
+	}
+	if entry.val != "" {
 		resp = "string"
+	} else if len(entry.stream) > 0 {
+		resp = "stream"
+	} else if len(entry.list) > 0 {
+		resp = "list"
 	}
 	return fmt.Sprintf("+%s\r\n", resp)
+}
+func (server *Redis) handleXADD(args []string) string {
+	fmt.Println(args)
+	stream_key := args[0]
+	id := args[1]
+	n := len(args)
+	i := 2
+	entry, _ := server.dict[stream_key]
+	items := make(map[string]string)
+
+	for i < n {
+		key := args[i]
+		val := args[i+1]
+		items[key] = val
+		i = i + 2
+	}
+	entry.stream = append(entry.stream, Stream{id: id, items: items})
+	server.dict[stream_key] = entry
+
+	return encode(id)
 }
 
 func (server *Redis) handleConnection(conn net.Conn) {
@@ -297,6 +330,9 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			resp = server.handleBLPOP(args[1:])
 		case "TYPE":
 			resp = server.handleTYPE(args[1:])
+		case "XADD":
+			fmt.Println(args)
+			resp = server.handleXADD(args[1:])
 		default:
 			resp = "err\r\n"
 		}
