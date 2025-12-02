@@ -12,7 +12,7 @@ import (
 
 type Stream struct {
 	id    string
-	items map[string]string
+	items []string // key, val pair
 }
 
 type Entry struct {
@@ -350,6 +350,24 @@ func bsearch(arr []int64, target int64) int {
 	return -1
 }
 
+func bsearch_seq(arr []Stream, target int64) int {
+	left, right := 0, len(arr)-1
+	for left <= right {
+		m := left + (right-left)/2
+		id := arr[m].id
+		parts := strings.Split(id, "-")
+		seq, _ := strconv.ParseInt(parts[0], 10, 64)
+		if seq == target {
+			return m
+		} else if seq > target {
+			right = m - 1
+		} else {
+			left = m + 1
+		}
+	}
+	return -1
+}
+
 func (server *Redis) handleXADD(args []string) string {
 	stream_key := args[0]
 	id := args[1]
@@ -367,11 +385,12 @@ func (server *Redis) handleXADD(args []string) string {
 	if error_str != "" {
 		return simple_err(error_str)
 	}
-	items := make(map[string]string)
+	items := []string{}
 	for i < n {
 		key := args[i]
 		val := args[i+1]
-		items[key] = val
+		items = append(items, key)
+		items = append(items, val)
 		i = i + 2
 	}
 	entry.streams[millitime] = append(entry.streams[millitime], Stream{id: id, items: items})
@@ -389,25 +408,72 @@ func (server *Redis) handleXADD(args []string) string {
 func (server *Redis) handleXRANGE(args []string) string {
 	key := args[0]
 	entry, _ := server.dict[key]
-	start, _ := strconv.ParseInt(args[1], 10, 64)
-	end, _ := strconv.ParseInt(args[2], 10, 64)
+	start_parts := strings.Split(args[1], "-")
+	end_parts := strings.Split(args[2], "-")
+	start, _ := strconv.ParseInt(start_parts[0], 10, 64)
+	start_seq := int64(0)
+	end_seq := int64(0)
+	if len(start_parts) > 1 {
+		start_seq, _ = strconv.ParseInt(start_parts[1], 10, 64)
+	}
+	if len(end_parts) > 1 {
+		end_seq, _ = strconv.ParseInt(end_parts[1], 10, 64)
+	}
+	end, _ := strconv.ParseInt(end_parts[0], 10, 64)
 	start_idx := bsearch(entry.streamMS, start)
 	end_idx := bsearch(entry.streamMS, end)
 
-	result := []string{}
-	for i := start_idx; i <= end_idx; i++ {
+	start_key := entry.streamMS[0]
+	end_key := entry.streamMS[len(entry.streamMS)-1]
+
+	stream_count := 0
+	result := ""
+
+	start_stream := entry.streams[start_key]
+	end_stream := entry.streams[end_key]
+
+	sseq_idx := 0
+	eseq_idx := len(end_stream) - 1
+	if start_seq != 0 {
+		sseq_idx = bsearch_seq(start_stream, start_seq)
+	}
+	if end_seq != 0 {
+		eseq_idx = bsearch_seq(end_stream, end_seq)
+	}
+
+	// handle for start_idx
+	for i := sseq_idx; i < len(start_stream); i++ {
+		stream := start_stream[i]
+		curr := []string{}
+		curr = append(curr, stream.items...)
+		curr_str := "*2\r\n" + encode(stream.id) + encode_list(curr)
+		stream_count += 1
+		result = result + curr_str
+	}
+
+	for i := start_idx + 1; i < end_idx; i++ {
 		ms_key := entry.streamMS[i]
-		streams := entry.streams[ms_key]
-		for _, stream := range streams {
+		ms_streams := entry.streams[ms_key]
+		for _, stream := range ms_streams {
 			curr := []string{}
-			for key, value := range stream.items {
-				curr = append(curr, key, value)
-			}
-			curr_str := encode_list([]string{encode(stream.id), encode_list(curr)})
-			result = append(result, curr_str)
+			curr = append(curr, stream.items...)
+			curr_str := "*2\r\n" + encode(stream.id) + encode_list(curr)
+			stream_count += 1
+			result = result + curr_str
 		}
 	}
-	return encode_list(result)
+
+	for i := 0; i < eseq_idx+1; i++ {
+		stream := end_stream[i]
+		curr := []string{}
+		curr = append(curr, stream.items...)
+		curr_str := "*2\r\n" + encode(stream.id) + encode_list(curr)
+		stream_count += 1
+		result = result + curr_str
+	}
+
+	// handle for end_idx
+	return fmt.Sprintf("*%d\r\n%s", stream_count, result)
 }
 
 func (server *Redis) handleConnection(conn net.Conn) {
@@ -459,8 +525,10 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		case "TYPE":
 			resp = server.handleTYPE(args[1:])
 		case "XADD":
-			fmt.Println(args)
 			resp = server.handleXADD(args[1:])
+		case "XRANGE":
+			resp = server.handleXRANGE(args[1:])
+
 		default:
 			resp = "err\r\n"
 		}

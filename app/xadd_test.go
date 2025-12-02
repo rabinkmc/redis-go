@@ -40,7 +40,7 @@ func TestXADD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := server.handleXADD(tt.in)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("server.HandleXADD(%q)\n %#v; want %#v", tt.in, got, tt.want)
+				t.Fatalf("server.HandleXADD(%q)\n %#v; \n%#v", tt.in, got, tt.want)
 			}
 		})
 	}
