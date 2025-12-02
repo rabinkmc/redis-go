@@ -456,6 +456,44 @@ func (server *Redis) handleXRANGE(args []string) string {
 	return fmt.Sprintf("*%d\r\n%s", stream_count, result)
 }
 
+func (server *Redis) handleXREAD(args []string) string {
+	key := args[0]
+	entry, _ := server.dict[key]
+	start_parts := strings.Split(args[1], "-")
+	start, _ := strconv.ParseInt(start_parts[0], 10, 64)
+	start_seq := int64(0)
+	if len(start_parts) > 1 {
+		start_seq, _ = strconv.ParseInt(start_parts[1], 10, 64)
+	}
+
+	start_idx := bsearch(entry.streamMS, start)
+	end_idx := len(entry.streamMS) - 1
+
+	stream_count := 0
+	result := ""
+
+	// handle for start_idx
+	for i := start_idx; i <= end_idx; i++ {
+		ms_key := entry.streamMS[i]
+		ms_streams := entry.streams[ms_key]
+		sseq_idx := -1
+		if i == start_idx && start_seq > 0 {
+			sseq_idx = bsearch_seq(ms_streams, start_seq)
+		}
+		eseq_idx := len(ms_streams) - 1
+		for j := sseq_idx + 1; j <= eseq_idx; j++ {
+			curr := []string{}
+			stream := ms_streams[j]
+			curr = append(curr, stream.items...)
+			curr_str := "*2\r\n" + encode(stream.id) + encode_list(curr)
+			stream_count += 1
+			result = result + curr_str
+		}
+	}
+	// handle for end_idx
+	return fmt.Sprintf("*%d\r\n%s", stream_count, result)
+}
+
 func (server *Redis) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	for {
