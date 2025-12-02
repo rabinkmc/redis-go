@@ -546,6 +546,8 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			resp = server.handleXADD(args[1:])
 		case "XRANGE":
 			resp = server.handleXRANGE(args[1:])
+		case "XREAD":
+			resp = server.handleXREAD(args[2:])
 
 		default:
 			resp = "err\r\n"
