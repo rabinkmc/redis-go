@@ -13,13 +13,18 @@ func TestStream(t *testing.T) {
 	}{
 		{
 			name: "XADD1",
-			in:   []string{"some_key", "1526985054069-0", "temperature", "36", "humidity", "95"},
-			want: encode("1526985054069-0"),
+			in:   []string{"some_key", "0-1", "temperature", "36", "humidity", "95"},
+			want: encode("0-1"),
 		},
 		{
 			name: "XADD2",
-			in:   []string{"some_key", "1526985054079-0", "temperature", "37", "humidity", "94"},
-			want: encode("1526985054079-0"),
+			in:   []string{"some_key", "0-2", "temperature", "37", "humidity", "94"},
+			want: encode("0-2"),
+		},
+		{
+			name: "XADD3",
+			in:   []string{"some_key", "0-3", "temperature", "38", "humidity", "93"},
+			want: encode("0-3"),
 		},
 	}
 
@@ -33,24 +38,12 @@ func TestStream(t *testing.T) {
 		})
 	}
 	t.Run("stream case", func(t *testing.T) {
-		in := []string{"some_key", "1526985054069", "1526985054079"}
+		in := []string{"some_key", "0-2", "0-3"}
 		got := server.handleXRANGE(in)
 		want := "*2\r\n" +
 			"*2\r\n" +
 			"$15\r\n" +
-			"1526985054069-0\r\n" +
-			"*4\r\n" +
-			"$11\r\n" +
-			"temperature\r\n" +
-			"$2\r\n" +
-			"36\r\n" +
-			"$8\r\n" +
-			"humidity\r\n" +
-			"$2\r\n" +
-			"95\r\n" +
-			"*2\r\n" +
-			"$15\r\n" +
-			"1526985054079-0\r\n" +
+			"0-2\r\n" +
 			"*4\r\n" +
 			"$11\r\n" +
 			"temperature\r\n" +
@@ -59,7 +52,19 @@ func TestStream(t *testing.T) {
 			"$8\r\n" +
 			"humidity\r\n" +
 			"$2\r\n" +
-			"94\r\n"
+			"94\r\n" +
+			"*2\r\n" +
+			"$15\r\n" +
+			"0-3\r\n" +
+			"*4\r\n" +
+			"$11\r\n" +
+			"temperature\r\n" +
+			"$2\r\n" +
+			"38\r\n" +
+			"$8\r\n" +
+			"humidity\r\n" +
+			"$2\r\n" +
+			"93\r\n"
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("XRANGE(%q)\n\n %#v\n\n want\n\n %#v", in, got, want)
 		}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strconv"
@@ -356,7 +357,8 @@ func bsearch_seq(arr []Stream, target int64) int {
 		m := left + (right-left)/2
 		id := arr[m].id
 		parts := strings.Split(id, "-")
-		seq, _ := strconv.ParseInt(parts[0], 10, 64)
+		seq, _ := strconv.ParseInt(parts[1], 10, 64)
+		log.Printf("sequence printing %d\n", seq)
 		if seq == target {
 			return m
 		} else if seq > target {
@@ -420,58 +422,36 @@ func (server *Redis) handleXRANGE(args []string) string {
 		end_seq, _ = strconv.ParseInt(end_parts[1], 10, 64)
 	}
 	end, _ := strconv.ParseInt(end_parts[0], 10, 64)
+
 	start_idx := bsearch(entry.streamMS, start)
 	end_idx := bsearch(entry.streamMS, end)
-
-	start_key := entry.streamMS[0]
-	end_key := entry.streamMS[len(entry.streamMS)-1]
 
 	stream_count := 0
 	result := ""
 
-	start_stream := entry.streams[start_key]
-	end_stream := entry.streams[end_key]
-
-	sseq_idx := 0
-	eseq_idx := len(end_stream) - 1
-	if start_seq != 0 {
-		sseq_idx = bsearch_seq(start_stream, start_seq)
-	}
-	if end_seq != 0 {
-		eseq_idx = bsearch_seq(end_stream, end_seq)
-	}
-
 	// handle for start_idx
-	for i := sseq_idx; i < len(start_stream); i++ {
-		stream := start_stream[i]
-		curr := []string{}
-		curr = append(curr, stream.items...)
-		curr_str := "*2\r\n" + encode(stream.id) + encode_list(curr)
-		stream_count += 1
-		result = result + curr_str
-	}
-
-	for i := start_idx + 1; i < end_idx; i++ {
+	for i := start_idx; i <= end_idx; i++ {
 		ms_key := entry.streamMS[i]
 		ms_streams := entry.streams[ms_key]
-		for _, stream := range ms_streams {
+		sseq_idx := 0
+		if i == start_idx && start_seq > 0 {
+			sseq_idx = bsearch_seq(ms_streams, start_seq)
+		}
+		eseq_idx := len(ms_streams) - 1
+		if i == end_idx && end_seq > 0 {
+			if end_seq != 0 {
+				eseq_idx = bsearch_seq(ms_streams, end_seq)
+			}
+		}
+		for j := sseq_idx; j <= eseq_idx; j++ {
 			curr := []string{}
+			stream := ms_streams[j]
 			curr = append(curr, stream.items...)
 			curr_str := "*2\r\n" + encode(stream.id) + encode_list(curr)
 			stream_count += 1
 			result = result + curr_str
 		}
 	}
-
-	for i := 0; i < eseq_idx+1; i++ {
-		stream := end_stream[i]
-		curr := []string{}
-		curr = append(curr, stream.items...)
-		curr_str := "*2\r\n" + encode(stream.id) + encode_list(curr)
-		stream_count += 1
-		result = result + curr_str
-	}
-
 	// handle for end_idx
 	return fmt.Sprintf("*%d\r\n%s", stream_count, result)
 }
