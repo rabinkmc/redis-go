@@ -358,7 +358,6 @@ func bsearch_seq(arr []Stream, target int64) int {
 		id := arr[m].id
 		parts := strings.Split(id, "-")
 		seq, _ := strconv.ParseInt(parts[1], 10, 64)
-		log.Printf("sequence printing %d\n", seq)
 		if seq == target {
 			return m
 		} else if seq > target {
@@ -460,28 +459,30 @@ func (server *Redis) handleXREAD(args []string) string {
 	key := args[0]
 	entry, _ := server.dict[key]
 	start_parts := strings.Split(args[1], "-")
-	start, _ := strconv.ParseInt(start_parts[0], 10, 64)
-	start_seq := int64(0)
-	if len(start_parts) > 1 {
-		start_seq, _ = strconv.ParseInt(start_parts[1], 10, 64)
-	}
+	start_id, _ := strconv.ParseInt(start_parts[0], 10, 64)
+	start_seq, _ := strconv.ParseInt(start_parts[1], 10, 64)
 
-	start_idx := bsearch(entry.streamMS, start)
+	start_idx := bsearch(entry.streamMS, start_id)
 	end_idx := len(entry.streamMS) - 1
+	log.Printf("start_idx: %d\n", start_idx)
+	log.Printf("end_idx: %d\n", end_idx)
 
 	stream_count := 0
 	result := ""
-
 	// handle for start_idx
+
 	for i := start_idx; i <= end_idx; i++ {
 		ms_key := entry.streamMS[i]
 		ms_streams := entry.streams[ms_key]
-		sseq_idx := -1
-		if i == start_idx && start_seq > 0 {
-			sseq_idx = bsearch_seq(ms_streams, start_seq)
+		sseq_idx := 0
+		if i == start_idx {
+			sseq_idx = bsearch_seq(ms_streams, start_seq+1)
+		}
+		if sseq_idx == -1 {
+			continue
 		}
 		eseq_idx := len(ms_streams) - 1
-		for j := sseq_idx + 1; j <= eseq_idx; j++ {
+		for j := sseq_idx; j <= eseq_idx; j++ {
 			curr := []string{}
 			stream := ms_streams[j]
 			curr = append(curr, stream.items...)
@@ -491,7 +492,9 @@ func (server *Redis) handleXREAD(args []string) string {
 		}
 	}
 	// handle for end_idx
-	return fmt.Sprintf("*%d\r\n%s", stream_count, result)
+	value := fmt.Sprintf("*%d\r\n%s", stream_count, result)
+	final := "*1\r\n" + "*2\r\n" + encode(key) + value
+	return final
 }
 
 func (server *Redis) handleConnection(conn net.Conn) {
