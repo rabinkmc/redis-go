@@ -456,9 +456,34 @@ func (server *Redis) handleXRANGE(args []string) string {
 }
 
 func (server *Redis) handleXREAD(args []string) string {
-	key := args[0]
+	// assuming the second command is STREAMS
+	// assert args[1] == STREAMS
+	// single case
+
+	//multiple case
+	// suppose there are 10 arguments
+	// args[0] == XREAD
+	// args[1] == XSTREAM
+	// now total arg pair == 4
+	// arg[2], arg[3], arg[4], arg[5] are keys
+	// arg[6], arg[7], arg[8], arg[9] are values
+	// so we have *4\r\n items
+	// total loop = total_pairs == (len(args) - 2) / 2
+	n_keys := len(args) / 2
+	log.Printf("nkeys: %d\n", n_keys)
+	res := ""
+	for i := 0; i < n_keys; i++ {
+		stream_key := args[i]
+		stream_id := args[i+n_keys]
+		resp := server.handleXREADSINGLE(stream_key, stream_id)
+		res = res + resp
+	}
+	return fmt.Sprintf("*%d\r\n", n_keys) + res
+}
+
+func (server *Redis) handleXREADSINGLE(key, stream_id string) string {
 	entry, _ := server.dict[key]
-	start_parts := strings.Split(args[1], "-")
+	start_parts := strings.Split(stream_id, "-")
 	start_id, _ := strconv.ParseInt(start_parts[0], 10, 64)
 	start_seq, _ := strconv.ParseInt(start_parts[1], 10, 64)
 
@@ -493,7 +518,7 @@ func (server *Redis) handleXREAD(args []string) string {
 	}
 	// handle for end_idx
 	value := fmt.Sprintf("*%d\r\n%s", stream_count, result)
-	final := "*1\r\n" + "*2\r\n" + encode(key) + value
+	final := "*2\r\n" + encode(key) + value
 	return final
 }
 
@@ -551,7 +576,6 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			resp = server.handleXRANGE(args[1:])
 		case "XREAD":
 			resp = server.handleXREAD(args[2:])
-
 		default:
 			resp = "err\r\n"
 		}
