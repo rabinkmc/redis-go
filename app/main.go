@@ -627,10 +627,15 @@ func (server *Redis) handleConnection(conn net.Conn) {
 }
 
 func main() {
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
+	port := "6379"
+	if len(os.Args) >= 3 {
+		port = os.Args[2]
+	}
+	address := fmt.Sprintf("0.0.0.0:%s", port)
+	l, err := net.Listen("tcp", address)
 	server := NewRedis()
 	if err != nil {
-		fmt.Println("Failed to bind to port 6379")
+		fmt.Printf("Failed to bind to port %s\n", port)
 		os.Exit(1)
 	}
 	for {
