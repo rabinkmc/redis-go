@@ -14,23 +14,23 @@ func TestXADD(t *testing.T) {
 		want string
 	}{
 		{
-			name: "XADD",
+			name: "XADD 1",
 			in:   []string{"stream_key", "1-*", "temperature", "36", "humidity", "95"},
 			want: encode("1-0"),
 		},
 		{
-			name: "XADD",
+			name: "XADD 2",
 			in:   []string{"stream_key", "1-*", "temperature", "36", "humidity", "95"},
 			want: encode("1-1"),
 		},
 		{
-			name: "XADD",
+			name: "XADD 3",
 			in:   []string{"stream_key", "3-*", "temperature", "36", "humidity", "95"},
 			want: encode("3-0"),
 		},
 		{
-			name: "XADD",
-			in:   []string{"stream_key", "2-*", "temperature", "36", "humidity", "95"},
+			name: "XADD 4",
+			in:   []string{"stream_key", "2-0", "temperature", "36", "humidity", "95"},
 			want: simple_err(error_str),
 		},
 	}
