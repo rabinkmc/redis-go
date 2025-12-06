@@ -36,6 +36,8 @@ type Redis struct {
 	mu             sync.Mutex
 	waiters        map[string]chan string
 	stream_waiters map[string]chan string
+	commands       [][]string
+	queue          bool
 }
 
 func NewRedis() *Redis {
@@ -504,13 +506,27 @@ func (server *Redis) handleINCR(args []string) string {
 	server.dict[key] = entry
 	return resp_int(int_val + 1)
 }
-func (server *Redis) handleMULTI(args []string) string {
-	log.Println(args)
+func (server *Redis) handleMULTI() string {
+	server.queue = true
 	return "+OK\r\n"
 }
 
+func (server *Redis) handleEXEC() string {
+	if !server.queue {
+		return simple_err("EXEC without MULTI")
+	}
+	server.queue = false
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("*%d\r\n", len(server.commands)))
+	for _, cmds := range server.commands {
+		b.WriteString(server.Execute(cmds))
+	}
+	server.commands = [][]string{}
+	return b.String()
+}
+
 func (server *Redis) Execute(args []string) string {
-	cmd := args[0]
+	cmd := strings.ToUpper(args[0])
 	switch cmd {
 	case "ECHO":
 		return server.handleECHO(args[1])
@@ -548,7 +564,9 @@ func (server *Redis) Execute(args []string) string {
 		return server.handleINCR(args[1:])
 
 	case "MULTI":
-		return server.handleMULTI(args[1:])
+		return server.handleMULTI()
+	case "EXEC":
+		return server.handleEXEC()
 
 	default:
 		return "-ERR \r\n"
@@ -577,10 +595,14 @@ func (server *Redis) handleConnection(conn net.Conn) {
 				i++
 			}
 		}
-
-		resp := server.Execute(args)
+		resp := ""
+		if strings.ToUpper(args[0]) != "EXEC" && server.queue {
+			server.commands = append(server.commands, args)
+			resp = "+QUEUED\r\n"
+		} else {
+			resp = server.Execute(args)
+		}
 		_, err = conn.Write([]byte(resp))
-
 		if err != nil {
 			fmt.Println("Error writing to connection: ", err.Error())
 			return
