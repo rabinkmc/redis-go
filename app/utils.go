@@ -34,7 +34,7 @@ func get_time_and_seq(id string) (int64, int64) {
 
 func parse_xrange_id(id string, is_start bool) string {
 	parts := strings.Split(id, "-")
-	if len(parts) > 2 {
+	if len(parts) == 2 {
 		return id
 	}
 	if is_start {

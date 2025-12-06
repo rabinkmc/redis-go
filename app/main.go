@@ -298,7 +298,6 @@ func (entry *Entry) NewStream(stream_id string, items []string) (*Stream, string
 		}
 		stream_id = fmt.Sprintf("%d-%d", part1, part2)
 	}
-	log.Printf("%s", stream_id)
 
 	parts := strings.Split(stream_id, "-")
 	time, _ := strconv.ParseInt(parts[0], 10, 64)
@@ -375,7 +374,6 @@ func (server *Redis) handleXRANGE(args []string) string {
 		curr_str := "*2\r\n" + encode(stream.id) + encode_list(stream.items)
 		stream_count += 1
 		b.WriteString(curr_str)
-		i++
 	}
 	return fmt.Sprintf("*%d\r\n%s", stream_count, b.String())
 }
@@ -409,7 +407,6 @@ func (server *Redis) handleXREAD(args []string) string {
 	for i := 0; i < n_keys; i++ {
 		stream_key := args[i]
 		stream_id := args[i+n_keys]
-		log.Println("Marker 2")
 		resp := server.handleXREADSINGLE(stream_key, stream_id)
 		b.WriteString(resp)
 	}
