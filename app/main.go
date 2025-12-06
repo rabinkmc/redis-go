@@ -440,6 +440,11 @@ func (server *Redis) handleXREADBLOCK(args []string) string {
 	waiting_key := key + "," + id
 	server.stream_waiters[waiting_key] = ch
 	server.mu.Unlock()
+
+	if timeout == 0.0 {
+		val := <-ch
+		return val
+	}
 	select {
 	case val := <-ch:
 		return val
