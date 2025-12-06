@@ -38,7 +38,7 @@ type Redis struct {
 }
 
 func NewRedis() *Redis {
-	return &Redis{dict: make(map[string]Entry), waiters: make(map[string]chan string)}
+	return &Redis{dict: make(map[string]Entry), waiters: make(map[string]chan string), stream_waiters: make(map[string]chan string)}
 }
 
 func NewStream(id string, key_val []string) *Stream {
@@ -347,12 +347,21 @@ func (server *Redis) handleXADD(args []string) string {
 	}
 	server.dict[key] = entry
 
-	// if ch, exists := server.waiters[id]; exists {
-	// 	val := server.handleXREADSINGLE(key, id)
-	// 	go func() {
-	// 		ch <- val
-	// 	}()
-	// }
+	// brute force solution
+	for stream_key, ch := range server.stream_waiters {
+		parts := strings.Split(stream_key, ",")
+		if parts[0] != key {
+			continue
+		}
+		if parts[1] >= id {
+			continue
+		}
+		val := server.handleXREADSINGLE(key, parts[1])
+		delete(server.waiters, key)
+		go func() {
+			ch <- val
+		}()
+	}
 
 	return encode(stream.id)
 }
@@ -419,15 +428,15 @@ func (entry *Entry) stream_exists(id string) bool {
 
 func (server *Redis) handleXREADBLOCK(args []string) string {
 	// args[0] == time
-	// args[1] == STREAM
+	// args[1] == STREAMS
 	key := args[2]
 	id := args[3]
 	entry, ok := server.dict[key]
 	if ok && entry.stream_exists(id) {
 		return server.handleXREADSINGLE(key, id)
 	}
-	millitiime, _ := strconv.ParseFloat(args[0], 64)
-	timeout := time.Duration(millitiime*100) * time.Millisecond
+	mtime, _ := strconv.ParseFloat(args[0], 64)
+	timeout := time.Duration(mtime) * time.Millisecond
 	ch := make(chan string)
 	server.mu.Lock()
 	waiting_key := key + "," + id
@@ -520,7 +529,7 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		case "XRANGE":
 			resp = server.handleXRANGE(args[1:])
 		case "XREAD":
-			if args[1] == "BLOCK" {
+			if strings.ToUpper(args[1]) == "BLOCK" {
 				resp = server.handleXREADBLOCK(args[2:])
 			} else {
 				resp = server.handleXREAD(args[2:])

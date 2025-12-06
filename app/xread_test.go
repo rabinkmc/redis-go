@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestStreamRead(t *testing.T) {
+func TestXREAD(t *testing.T) {
 	xadd_cmds := [][]string{
 		{"some_key", "0-1", "temperature", "36", "humidity", "95"},
 		{"some_key", "0-2", "temperature", "37", "humidity", "94"},
