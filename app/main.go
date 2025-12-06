@@ -337,6 +337,16 @@ func (server *Redis) handleXADD(args []string) string {
 	}
 	server.dict[key] = entry
 
+	if ch, exists := server.stream_waiters[key+","+"$"]; exists {
+		arr := "*1\r\n" + "*2\r\n" + encode(stream.id) + encode_list(stream.items)
+		xread_val := "*1\r\n" + "*2\r\n" + encode(key) + arr
+		delete(server.waiters, key)
+		go func() {
+			ch <- xread_val
+		}()
+		return encode(stream.id)
+	}
+
 	// brute force solution
 	for stream_key, ch := range server.stream_waiters {
 		parts := strings.Split(stream_key, ",")
@@ -346,12 +356,11 @@ func (server *Redis) handleXADD(args []string) string {
 		if parts[1] >= id {
 			continue
 		}
-
-		args := []string{key, parts[1]}
-		val := server.handleXREAD(args)
+		arr := "*1\r\n" + "*2\r\n" + encode(stream.id) + encode_list(stream.items)
+		xread_val := "*1\r\n" + "*2\r\n" + encode(key) + arr
 		delete(server.waiters, key)
 		go func() {
-			ch <- val
+			ch <- xread_val
 		}()
 	}
 
@@ -430,7 +439,7 @@ func (server *Redis) handleXREADBLOCK(args []string) string {
 	key := args[2]
 	id := args[3]
 	entry, ok := server.dict[key]
-	if ok && entry.stream_exists(id) {
+	if id != "$" && ok && entry.stream_exists(id) {
 		return server.handleXREADSINGLE(key, id)
 	}
 	mtime, _ := strconv.ParseFloat(args[0], 64)
