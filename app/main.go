@@ -504,6 +504,10 @@ func (server *Redis) handleINCR(args []string) string {
 	server.dict[key] = entry
 	return resp_int(int_val + 1)
 }
+func (server *Redis) handleMULTI(args []string) string {
+	log.Println(args)
+	return "+OK\r\n"
+}
 
 func (server *Redis) Execute(args []string) string {
 	cmd := args[0]
@@ -542,6 +546,9 @@ func (server *Redis) Execute(args []string) string {
 		}
 	case "INCR":
 		return server.handleINCR(args[1:])
+
+	case "MULTI":
+		return server.handleMULTI(args[1:])
 
 	default:
 		return "-ERR \r\n"
