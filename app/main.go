@@ -445,8 +445,9 @@ func (server *Redis) handleXREADBLOCK(args []string) string {
 	mtime, _ := strconv.ParseFloat(args[0], 64)
 	timeout := time.Duration(mtime) * time.Millisecond
 	ch := make(chan string)
-	server.mu.Lock()
+
 	waiting_key := key + "," + id
+	server.mu.Lock()
 	server.stream_waiters[waiting_key] = ch
 	server.mu.Unlock()
 
@@ -488,6 +489,58 @@ func (server *Redis) handleXREADSINGLE(key, stream_id string) string {
 	return final
 }
 
+func (server *Redis) handleINCR(args []string) string {
+	key := args[0]
+	entry, _ := server.dict[key]
+	int_val, _ := strconv.Atoi(entry.val)
+	entry.val = strconv.Itoa(int_val + 1)
+	server.dict[key] = entry
+	return resp_int(int_val + 1)
+}
+
+func (server *Redis) Execute(args []string) string {
+	cmd := args[0]
+	switch cmd {
+	case "ECHO":
+		return server.handleECHO(args[1])
+	case "PING":
+		return server.handlePING()
+	case "SET":
+		return server.handleSET(args[1:])
+	case "GET":
+		return server.handleGET(args[1])
+	case "RPUSH":
+		return server.handleRPUSH(args[1:])
+	case "LRANGE":
+		return server.handleLRANGE(args[1:])
+	case "LPUSH":
+		return server.handleLPUSH(args[1:])
+	case "LLEN":
+		return server.handleLLEN(args[1])
+	case "LPOP":
+		return server.handleLPOP(args[1:])
+	case "BLPOP":
+		return server.handleBLPOP(args[1:])
+	case "TYPE":
+		return server.handleTYPE(args[1:])
+	case "XADD":
+		return server.handleXADD(args[1:])
+	case "XRANGE":
+		return server.handleXRANGE(args[1:])
+	case "XREAD":
+		if strings.ToUpper(args[1]) == "BLOCK" {
+			return server.handleXREADBLOCK(args[2:])
+		} else {
+			return server.handleXREAD(args[2:])
+		}
+	case "INCR":
+		return server.handleINCR(args[1:])
+
+	default:
+		return "-ERR \r\n"
+	}
+}
+
 func (server *Redis) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	for {
@@ -500,8 +553,8 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			fmt.Println("Error reading from connection: ", err.Error())
 			continue
 		}
-		resp_string := string(buf[:n])
-		params := strings.Split(resp_string, "\r\n")
+		cmd_line := string(buf[:n])
+		params := strings.Split(cmd_line, "\r\n")
 
 		args := []string{}
 		for i := 1; i < len(params); i++ {
@@ -510,46 +563,8 @@ func (server *Redis) handleConnection(conn net.Conn) {
 				i++
 			}
 		}
-		cmd := strings.ToUpper(args[0])
-		resp := ""
 
-		switch cmd {
-		case "ECHO":
-			resp = server.handleECHO(args[1])
-		case "PING":
-			resp = server.handlePING()
-		case "SET":
-			resp = server.handleSET(args[1:])
-		case "GET":
-			resp = server.handleGET(args[1])
-		case "RPUSH":
-			resp = server.handleRPUSH(args[1:])
-		case "LRANGE":
-			resp = server.handleLRANGE(args[1:])
-		case "LPUSH":
-			resp = server.handleLPUSH(args[1:])
-		case "LLEN":
-			resp = server.handleLLEN(args[1])
-		case "LPOP":
-			resp = server.handleLPOP(args[1:])
-		case "BLPOP":
-			resp = server.handleBLPOP(args[1:])
-		case "TYPE":
-			resp = server.handleTYPE(args[1:])
-		case "XADD":
-			resp = server.handleXADD(args[1:])
-		case "XRANGE":
-			resp = server.handleXRANGE(args[1:])
-		case "XREAD":
-			if strings.ToUpper(args[1]) == "BLOCK" {
-				resp = server.handleXREADBLOCK(args[2:])
-			} else {
-				resp = server.handleXREAD(args[2:])
-			}
-
-		default:
-			resp = "err\r\n"
-		}
+		resp := server.Execute(args)
 		_, err = conn.Write([]byte(resp))
 
 		if err != nil {
