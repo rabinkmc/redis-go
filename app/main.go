@@ -259,7 +259,7 @@ func (server *Redis) handleTYPE(args []string) string {
 
 func (entry *Entry) NewStream(stream_id string, items []string) (*Stream, string) {
 	if stream_id == "0-0" {
-		return nil, simple_err("The ID specified in XADD must be greater than 0-0\r\n")
+		return nil, simple_err("The ID specified in XADD must be greater than 0-0")
 	}
 	n := len(entry.streams)
 	if stream_id == "*" {
@@ -275,7 +275,7 @@ func (entry *Entry) NewStream(stream_id string, items []string) (*Stream, string
 	if len(stream_id) >= 2 && stream_id[len(stream_id)-2:] == "-*" {
 		part1, _ := strconv.ParseInt(stream_id[:strings.Index(stream_id, "-")], 10, 64)
 		if n > 0 && part1 < entry.streams[len(entry.streams)-1].time {
-			return nil, simple_err(fmt.Sprintf("The ID specified in XADD is equal or smaller than the target stream top item"))
+			return nil, simple_err("The ID specified in XADD is equal or smaller than the target stream top item")
 		}
 		_, ok := entry.streamMS[part1]
 		part2 := int64(0)
@@ -310,7 +310,7 @@ func (entry *Entry) NewStream(stream_id string, items []string) (*Stream, string
 	case1 := stream.time < prev_stream.time
 	case2 := (stream.time == prev_stream.time) && (stream.seq <= prev_stream.seq)
 	if case1 || case2 {
-		return nil, simple_err(fmt.Sprintf("The ID specified in XADD is equal or smaller than the target stream top item"))
+		return nil, simple_err("The ID specified in XADD is equal or smaller than the target stream top item")
 	}
 	return stream, ""
 
@@ -370,7 +370,6 @@ func (server *Redis) handleXRANGE(args []string) string {
 	if args[2] != "+" {
 		end_index = bsearch_lte(entry.streams, args[2])
 	}
-	print("Out here")
 	if start_index == -1 || end_index == -1 {
 		return NULL_ARRAY
 	}
