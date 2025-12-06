@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"math"
 	"net"
 	"os"
 	"strconv"
@@ -12,8 +11,6 @@ import (
 	"time"
 )
 
-const MAX_SEQ int64 = math.MaxInt64
-const MIN_SEQ int64 = 0
 const NULL_ARRAY string = "*-1\r\n"
 
 type Stream struct {
