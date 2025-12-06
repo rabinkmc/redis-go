@@ -14,6 +14,7 @@ import (
 
 const MAX_SEQ int64 = math.MaxInt64
 const MIN_SEQ int64 = 0
+const NULL_ARRAY string = "*-1\r\n"
 
 type Stream struct {
 	id    string
@@ -248,7 +249,7 @@ func (server *Redis) handleBLPOP(args []string) string {
 		server.mu.Lock()
 		delete(server.waiters, key)
 		server.mu.Unlock()
-		return "*-1\r\n"
+		return NULL_ARRAY
 	}
 
 }
@@ -372,11 +373,17 @@ func (server *Redis) handleXRANGE(args []string) string {
 	key := args[0]
 	entry, _ := server.dict[key]
 
-	start_id := parse_xrange_id(args[1], true)
-	end_id := parse_xrange_id(args[2], false)
-
-	start_index := bsearch_gte(entry.streams, start_id)
-	end_index := bsearch_lte(entry.streams, end_id)
+	start_index := 0
+	end_index := len(entry.streams) - 1
+	if args[1] != "-" {
+		start_index = bsearch_gte(entry.streams, args[1])
+	}
+	if args[2] != "+" {
+		end_index = bsearch_lte(entry.streams, args[2])
+	}
+	if start_index == -1 || end_index == -1 {
+		return NULL_ARRAY
+	}
 
 	stream_count := 0
 	var b strings.Builder
@@ -451,7 +458,7 @@ func (server *Redis) handleXREADBLOCK(args []string) string {
 		server.mu.Lock()
 		delete(server.waiters, id)
 		server.mu.Unlock()
-		return "*-1\r\n"
+		return NULL_ARRAY
 	}
 }
 

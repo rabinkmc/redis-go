@@ -38,7 +38,7 @@ func TestXRANGE(t *testing.T) {
 		})
 	}
 	t.Run("stream case", func(t *testing.T) {
-		in := []string{"some_key", "0-2", "0-3"}
+		in := []string{"some_key", "0-2", "+"}
 		got := server.handleXRANGE(in)
 		want := "*2\r\n" +
 			"*2\r\n" +

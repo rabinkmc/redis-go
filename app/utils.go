@@ -31,14 +31,3 @@ func get_time_and_seq(id string) (int64, int64) {
 	seq, _ := strconv.ParseInt(parts[1], 10, 64)
 	return time, seq
 }
-
-func parse_xrange_id(id string, is_start bool) string {
-	parts := strings.Split(id, "-")
-	if len(parts) == 2 {
-		return id
-	}
-	if is_start {
-		return fmt.Sprintf("%s-%d", id, 0)
-	}
-	return fmt.Sprintf("%s-%d", id, MAX_SEQ)
-}
