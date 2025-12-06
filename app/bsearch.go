@@ -54,7 +54,7 @@ func bsearch_lte(arr []Stream, target string) int {
 			ans = m
 			left = m + 1
 		} else {
-			right = m + 1
+			right = m - 1
 		}
 	}
 	return ans
@@ -69,7 +69,7 @@ func bsearch_lt(arr []Stream, target string) int {
 			ans = m
 			left = m + 1
 		} else {
-			right = m + 1
+			right = m - 1
 		}
 	}
 	return ans

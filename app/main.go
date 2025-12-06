@@ -379,8 +379,10 @@ func (server *Redis) handleXRANGE(args []string) string {
 		start_index = bsearch_gte(entry.streams, args[1])
 	}
 	if args[2] != "+" {
+		print("Stuck here")
 		end_index = bsearch_lte(entry.streams, args[2])
 	}
+	print("Out here")
 	if start_index == -1 || end_index == -1 {
 		return NULL_ARRAY
 	}
