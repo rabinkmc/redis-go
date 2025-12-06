@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestStream(t *testing.T) {
+func TestXRANGE(t *testing.T) {
 	tests := []struct {
 		name string
 		in   []string
@@ -42,7 +42,7 @@ func TestStream(t *testing.T) {
 		got := server.handleXRANGE(in)
 		want := "*2\r\n" +
 			"*2\r\n" +
-			"$15\r\n" +
+			"$3\r\n" +
 			"0-2\r\n" +
 			"*4\r\n" +
 			"$11\r\n" +
@@ -54,7 +54,7 @@ func TestStream(t *testing.T) {
 			"$2\r\n" +
 			"94\r\n" +
 			"*2\r\n" +
-			"$15\r\n" +
+			"$3\r\n" +
 			"0-3\r\n" +
 			"*4\r\n" +
 			"$11\r\n" +

@@ -60,8 +60,7 @@ func TestXADDA(t *testing.T) {
 	server := NewRedis()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := server.handleXADD(tt.in)
-			fmt.Printf("%s", got)
+			server.handleXADD(tt.in)
 		})
 	}
 }

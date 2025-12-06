@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -11,46 +12,46 @@ import (
 	"time"
 )
 
+const MAX_SEQ int64 = math.MaxInt64
+const MIN_SEQ int64 = 0
+
 type Stream struct {
 	id    string
+	time  int64
+	seq   int64
 	items []string // key, val pair
 }
 
 type Entry struct {
 	val      string
 	list     []string
-	streams  map[int64][]Stream
-	streamMS []int64
+	streams  []Stream
+	streamMS map[int64]int
 	time     *time.Time
 }
 
 type Redis struct {
-	dict    map[string]Entry
-	mu      sync.Mutex
-	waiters map[string]chan string
+	dict           map[string]Entry
+	mu             sync.Mutex
+	waiters        map[string]chan string
+	stream_waiters map[string]chan string
 }
 
 func NewRedis() *Redis {
 	return &Redis{dict: make(map[string]Entry), waiters: make(map[string]chan string)}
 }
 
-func encode(str string) string {
-	result := fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
-	return result
-}
+func NewStream(id string, key_val []string) *Stream {
 
-func simple_err(str string) string {
-	return fmt.Sprintf("-ERR %s\r\n", str)
-}
-func encode_list(strs []string) string {
-	if len(strs) == 0 {
-		return "*0\r\n"
+	stream := &Stream{
+		id:    id,
+		items: key_val,
 	}
-	result := fmt.Sprintf("*%d\r\n", len(strs))
-	for _, str := range strs {
-		result += fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
-	}
-	return result
+	parts := strings.Split(id, "-")
+	// already validated time and seq
+	stream.time, _ = strconv.ParseInt(parts[0], 10, 64)
+	stream.seq, _ = strconv.ParseInt(parts[1], 10, 64)
+	return stream
 }
 
 func (server *Redis) handlePING() string {
@@ -268,191 +269,115 @@ func (server *Redis) handleTYPE(args []string) string {
 	return fmt.Sprintf("+%s\r\n", resp)
 }
 
-// ms := time.Now().UnixMilli()
-func (entry *Entry) validate_id(millitime int64, id string) (string, string) {
-	streams := entry.streams[millitime]
-	var t2, s2 int64
-	var err error
-	new_id := id
-	if new_id == "*" {
+func (entry *Entry) NewStream(stream_id string, items []string) (*Stream, string) {
+	n := len(entry.streams)
+	if stream_id == "*" {
 		unix_time := time.Now().UnixMilli()
-		streams, ok := entry.streams[unix_time]
+		_, ok := entry.streamMS[unix_time]
 		if !ok {
-			return fmt.Sprintf("%d-%d", unix_time, 0), ""
+			stream_id = fmt.Sprintf("%d-%d", unix_time, 0)
+		} else {
+			prev_stream := entry.streams[n-1]
+			stream_id = fmt.Sprintf("%d-%d", unix_time, prev_stream.seq+1)
 		}
-		seq, _ := strconv.ParseInt(strings.Split(streams[len(streams)-1].id, "-")[1], 10, 64)
-		return fmt.Sprintf("%d-%d", unix_time, seq+1), ""
 	}
-	parts := strings.Split(new_id, "-")
-	t2, err = strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return new_id, fmt.Sprintf("Failed to parse time for new ID: %s", parts)
-	}
-	if parts[1] != "*" {
-		s2, err = strconv.ParseInt(parts[1], 10, 64)
-		if err != nil {
-			return new_id, fmt.Sprintf("Failed to parse sequence for new ID: %s", parts)
+	if len(stream_id) >= 2 && stream_id[len(stream_id)-2:] == "-*" {
+		part1, _ := strconv.ParseInt(stream_id[:strings.Index(stream_id, "-")], 10, 64)
+		if n > 0 && part1 < entry.streams[len(entry.streams)-1].time {
+			return nil, simple_err(fmt.Sprintf("The ID specified in XADD is equal or smaller than the target stream top item"))
 		}
-	} else {
-		if len(streams) == 0 {
-			if t2 == 0 {
-				s2 = 1
-			} else {
-				s2 = 0
+		_, ok := entry.streamMS[part1]
+		part2 := int64(0)
+		if !ok {
+			if part1 == 0 {
+				part2 = 1
 			}
 		} else {
-			prev_id := streams[len(streams)-1].id
-			prev_id_parts := strings.Split(prev_id, "-")
-			prev_seq, _ := strconv.ParseInt(prev_id_parts[1], 10, 64)
-			s2 = prev_seq + 1
+			prev_stream := entry.streams[n-1]
+			part2 = prev_stream.seq + 1
 		}
+		stream_id = fmt.Sprintf("%d-%d", part1, part2)
 	}
-	new_id = fmt.Sprintf("%d-%d", t2, s2)
-	if t2 <= 0 && s2 <= 0 {
-		return new_id, fmt.Sprintf("The ID specified in XADD must be greater than 0-0")
-	}
+	log.Printf("%s", stream_id)
 
-	top := len(entry.streamMS) - 1
-	if top == -1 {
-		return new_id, ""
-	}
+	parts := strings.Split(stream_id, "-")
+	time, _ := strconv.ParseInt(parts[0], 10, 64)
+	seq, _ := strconv.ParseInt(parts[1], 10, 64)
 
-	t1 := entry.streamMS[top]
-	error_str := fmt.Sprintf("The ID specified in XADD is equal or smaller than the target stream top item")
-	if t2 < t1 {
-		return new_id, error_str
+	stream := &Stream{
+		id:    stream_id,
+		items: items,
+		time:  time,
+		seq:   seq,
 	}
-	var s1 int64 = 0
+	if n == 0 {
+		return stream, ""
+	}
+	prev_stream := entry.streams[n-1]
+	if stream.time > prev_stream.time {
+		return stream, ""
 
-	if len(streams) > 0 {
-		prev_id := streams[len(streams)-1].id
-		prev_id_parts := strings.Split(prev_id, "-")
-		s1, _ = strconv.ParseInt(prev_id_parts[1], 10, 64)
 	}
+	case1 := stream.time > prev_stream.time
+	case2 := (stream.time == prev_stream.time) && (stream.seq <= prev_stream.seq)
+	if case1 || case2 {
+		return nil, simple_err(fmt.Sprintf("The ID specified in XADD is equal or smaller than the target stream top item"))
+	}
+	return stream, ""
 
-	if (t1 == t2) && (s2 <= s1) {
-		return new_id, error_str
-	}
-	return new_id, ""
-}
-
-func bsearch(arr []int64, target int64) int {
-	left, right := 0, len(arr)-1
-	for left <= right {
-		m := left + (right-left)/2
-		if arr[m] == target {
-			return m
-		} else if arr[m] > target {
-			right = m - 1
-		} else {
-			left = m + 1
-		}
-	}
-	return -1
-}
-
-func bsearch_seq(arr []Stream, target int64) int {
-	left, right := 0, len(arr)-1
-	for left <= right {
-		m := left + (right-left)/2
-		id := arr[m].id
-		parts := strings.Split(id, "-")
-		seq, _ := strconv.ParseInt(parts[1], 10, 64)
-		if seq == target {
-			return m
-		} else if seq > target {
-			right = m - 1
-		} else {
-			left = m + 1
-		}
-	}
-	return -1
 }
 
 func (server *Redis) handleXADD(args []string) string {
-	stream_key := args[0]
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	key := args[0]
 	id := args[1]
-	n := len(args)
-	i := 2
-	entry, _ := server.dict[stream_key]
-	if entry.streams == nil {
-		entry.streams = make(map[int64][]Stream)
-	}
-	parts := strings.Split(id, "-")
-
-	millitime, _ := strconv.ParseInt(parts[0], 10, 64)
-
-	id, error_str := entry.validate_id(millitime, id)
-	if error_str != "" {
-		return simple_err(error_str)
-	}
-	items := []string{}
-	for i < n {
-		key := args[i]
-		val := args[i+1]
-		items = append(items, key)
-		items = append(items, val)
-		i = i + 2
-	}
-	entry.streams[millitime] = append(entry.streams[millitime], Stream{id: id, items: items})
-
-	ms_size := len(entry.streamMS)
-	if ms_size == 0 || millitime > entry.streamMS[ms_size-1] {
-		entry.streamMS = append(entry.streamMS, millitime)
+	entry, _ := server.dict[key]
+	if len(entry.streams) == 0 {
+		entry.streamMS = make(map[int64]int)
 	}
 
-	server.dict[stream_key] = entry
+	stream, err := entry.NewStream(id, args[2:])
+	if err != "" {
+		return err
+	}
+	entry.streams = append(entry.streams, *stream)
+	_, ok := entry.streamMS[stream.time]
+	if !ok {
+		entry.streamMS[stream.time] = len(entry.streams) - 1
+	}
+	server.dict[key] = entry
 
-	return encode(id)
+	// if ch, exists := server.waiters[id]; exists {
+	// 	val := server.handleXREADSINGLE(key, id)
+	// 	go func() {
+	// 		ch <- val
+	// 	}()
+	// }
+
+	return encode(stream.id)
 }
 
 func (server *Redis) handleXRANGE(args []string) string {
 	key := args[0]
 	entry, _ := server.dict[key]
-	start_parts := strings.Split(args[1], "-")
-	end_parts := strings.Split(args[2], "-")
-	start, _ := strconv.ParseInt(start_parts[0], 10, 64)
-	start_seq := int64(0)
-	end_seq := int64(0)
-	if len(start_parts) > 1 {
-		start_seq, _ = strconv.ParseInt(start_parts[1], 10, 64)
-	}
-	if len(end_parts) > 1 {
-		end_seq, _ = strconv.ParseInt(end_parts[1], 10, 64)
-	}
-	end, _ := strconv.ParseInt(end_parts[0], 10, 64)
 
-	start_idx := bsearch(entry.streamMS, start)
-	end_idx := bsearch(entry.streamMS, end)
+	start_id := parse_xrange_id(args[1], true)
+	end_id := parse_xrange_id(args[2], false)
+
+	start_index := bsearch_gte(entry.streams, start_id)
+	end_index := bsearch_lte(entry.streams, end_id)
 
 	stream_count := 0
-	result := ""
-
-	// handle for start_idx
-	for i := start_idx; i <= end_idx; i++ {
-		ms_key := entry.streamMS[i]
-		ms_streams := entry.streams[ms_key]
-		sseq_idx := 0
-		if i == start_idx && start_seq > 0 {
-			sseq_idx = bsearch_seq(ms_streams, start_seq)
-		}
-		eseq_idx := len(ms_streams) - 1
-		if i == end_idx && end_seq > 0 {
-			if end_seq != 0 {
-				eseq_idx = bsearch_seq(ms_streams, end_seq)
-			}
-		}
-		for j := sseq_idx; j <= eseq_idx; j++ {
-			curr := []string{}
-			stream := ms_streams[j]
-			curr = append(curr, stream.items...)
-			curr_str := "*2\r\n" + encode(stream.id) + encode_list(curr)
-			stream_count += 1
-			result = result + curr_str
-		}
+	var b strings.Builder
+	for i := start_index; i <= end_index; i++ {
+		stream := entry.streams[i]
+		curr_str := "*2\r\n" + encode(stream.id) + encode_list(stream.items)
+		stream_count += 1
+		b.WriteString(curr_str)
+		i++
 	}
-	// handle for end_idx
-	return fmt.Sprintf("*%d\r\n%s", stream_count, result)
+	return fmt.Sprintf("*%d\r\n%s", stream_count, b.String())
 }
 
 func (server *Redis) handleXREAD(args []string) string {
@@ -469,52 +394,75 @@ func (server *Redis) handleXREAD(args []string) string {
 	// arg[6], arg[7], arg[8], arg[9] are values
 	// so we have *4\r\n items
 	// total loop = total_pairs == (len(args) - 2) / 2
+	// if block is not specified this works fine
+	// however, if block exists
+	// we have two cases
+	// one if data exists we return
+	// else we create a channel, put channel in our waiter map, we wait for the sender to send the data to that channel
+	// once we have the data we proceed as before
+	if len(args) < 2 || len(args)%2 == 1 {
+		log.Fatalf("Invalid arguments")
+	}
 	n_keys := len(args) / 2
-	log.Printf("nkeys: %d\n", n_keys)
-	res := ""
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("*%d\r\n", n_keys))
 	for i := 0; i < n_keys; i++ {
 		stream_key := args[i]
 		stream_id := args[i+n_keys]
+		log.Println("Marker 2")
 		resp := server.handleXREADSINGLE(stream_key, stream_id)
-		res = res + resp
+		b.WriteString(resp)
 	}
-	return fmt.Sprintf("*%d\r\n", n_keys) + res
+	return b.String()
+}
+
+func (entry *Entry) stream_exists(id string) bool {
+	return bsearch_gt(entry.streams, id) != -1
+}
+
+func (server *Redis) handleXREADBLOCK(args []string) string {
+	// args[0] == time
+	// args[1] == STREAM
+	key := args[2]
+	id := args[3]
+	entry, ok := server.dict[key]
+	if ok && entry.stream_exists(id) {
+		return server.handleXREADSINGLE(key, id)
+	}
+	millitiime, _ := strconv.ParseFloat(args[0], 64)
+	timeout := time.Duration(millitiime*100) * time.Millisecond
+	ch := make(chan string)
+	server.mu.Lock()
+	waiting_key := key + "," + id
+	server.stream_waiters[waiting_key] = ch
+	server.mu.Unlock()
+	select {
+	case val := <-ch:
+		return val
+	case <-time.After(timeout):
+		server.mu.Lock()
+		delete(server.waiters, id)
+		server.mu.Unlock()
+		return "*-1\r\n"
+	}
 }
 
 func (server *Redis) handleXREADSINGLE(key, stream_id string) string {
+	// this function shouldn't be called if there is no data
 	entry, _ := server.dict[key]
-	start_parts := strings.Split(stream_id, "-")
-	start_id, _ := strconv.ParseInt(start_parts[0], 10, 64)
-	start_seq, _ := strconv.ParseInt(start_parts[1], 10, 64)
-
-	start_idx := bsearch(entry.streamMS, start_id)
-	end_idx := len(entry.streamMS) - 1
-	log.Printf("start_idx: %d\n", start_idx)
-	log.Printf("end_idx: %d\n", end_idx)
+	start_idx := bsearch_gt(entry.streams, stream_id)
+	end_idx := len(entry.streams) - 1
 
 	stream_count := 0
 	result := ""
 	// handle for start_idx
+	// i should filp the operations
+	// entry.StreamMS should hold the MS_Key and give me the starting address
 
 	for i := start_idx; i <= end_idx; i++ {
-		ms_key := entry.streamMS[i]
-		ms_streams := entry.streams[ms_key]
-		sseq_idx := 0
-		if i == start_idx {
-			sseq_idx = bsearch_seq(ms_streams, start_seq+1)
-		}
-		if sseq_idx == -1 {
-			continue
-		}
-		eseq_idx := len(ms_streams) - 1
-		for j := sseq_idx; j <= eseq_idx; j++ {
-			curr := []string{}
-			stream := ms_streams[j]
-			curr = append(curr, stream.items...)
-			curr_str := "*2\r\n" + encode(stream.id) + encode_list(curr)
-			stream_count += 1
-			result = result + curr_str
-		}
+		curr_str := "*2\r\n" + encode(entry.streams[i].id) + encode_list(entry.streams[i].items)
+		result = result + curr_str
+		stream_count += 1
 	}
 	// handle for end_idx
 	value := fmt.Sprintf("*%d\r\n%s", stream_count, result)
@@ -575,7 +523,12 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		case "XRANGE":
 			resp = server.handleXRANGE(args[1:])
 		case "XREAD":
-			resp = server.handleXREAD(args[2:])
+			if args[1] == "BLOCK" {
+				resp = server.handleXREADBLOCK(args[2:])
+			} else {
+				resp = server.handleXREAD(args[2:])
+			}
+
 		default:
 			resp = "err\r\n"
 		}
