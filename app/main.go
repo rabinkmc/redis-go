@@ -491,8 +491,15 @@ func (server *Redis) handleXREADSINGLE(key, stream_id string) string {
 
 func (server *Redis) handleINCR(args []string) string {
 	key := args[0]
-	entry, _ := server.dict[key]
-	int_val, _ := strconv.Atoi(entry.val)
+	entry, ok := server.dict[key]
+	if !ok {
+		entry = Entry{val: "0"}
+		server.dict[key] = entry
+	}
+	int_val, err := strconv.Atoi(entry.val)
+	if err != nil {
+		return simple_err("value is not an integer or out of range")
+	}
 	entry.val = strconv.Itoa(int_val + 1)
 	server.dict[key] = entry
 	return resp_int(int_val + 1)
