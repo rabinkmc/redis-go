@@ -517,6 +517,14 @@ func (server *Redis) handleMULTI(client *Client) string {
 	client.queue = true
 	return "+OK\r\n"
 }
+func (server *Redis) handleDISCARD(client *Client) string {
+	if !client.queue {
+		return simple_err("DISCARD without MULTI")
+	}
+	client.queue = false
+	client.commands = [][]string{}
+	return "+OK\r\n"
+}
 
 func (server *Redis) handleEXEC(client *Client) string {
 	if !client.queue {
@@ -572,6 +580,8 @@ func (server *Redis) Execute(client *Client, args []string) string {
 
 	case "MULTI":
 		return server.handleMULTI(client)
+	case "DISCARD":
+		return server.handleDISCARD(client)
 	case "EXEC":
 		return server.handleEXEC(client)
 
@@ -604,7 +614,8 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			}
 		}
 		resp := ""
-		if strings.ToUpper(args[0]) != "EXEC" && client.queue {
+		cmd := strings.ToUpper(args[0])
+		if cmd != "DISCARD" && cmd != "EXEC" && client.queue {
 			client.commands = append(client.commands, args)
 			resp = "+QUEUED\r\n"
 		} else {
