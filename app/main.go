@@ -356,7 +356,9 @@ func (server *Redis) handleXADD(args []string) string {
 		if parts[1] >= id {
 			continue
 		}
-		val := server.handleXREADSINGLE(key, parts[1])
+
+		args := []string{key, parts[1]}
+		val := server.handleXREAD(args)
 		delete(server.waiters, key)
 		go func() {
 			ch <- val
