@@ -36,12 +36,20 @@ type Redis struct {
 	mu             sync.Mutex
 	waiters        map[string]chan string
 	stream_waiters map[string]chan string
-	commands       [][]string
-	queue          bool
+}
+
+type Client struct {
+	address  string
+	commands [][]string
+	queue    bool
 }
 
 func NewRedis() *Redis {
-	return &Redis{dict: make(map[string]Entry), waiters: make(map[string]chan string), stream_waiters: make(map[string]chan string)}
+	return &Redis{
+		dict:           make(map[string]Entry),
+		waiters:        make(map[string]chan string),
+		stream_waiters: make(map[string]chan string),
+	}
 }
 
 func (server *Redis) handlePING() string {
@@ -73,7 +81,6 @@ func (server *Redis) handleSET(args []string) string {
 
 func (server *Redis) handleGET(key string) string {
 	entry, ok := server.dict[key]
-	fmt.Printf("time: %v", entry.time)
 	if !ok {
 		return "$-1\r\n"
 	}
@@ -506,26 +513,26 @@ func (server *Redis) handleINCR(args []string) string {
 	server.dict[key] = entry
 	return resp_int(int_val + 1)
 }
-func (server *Redis) handleMULTI() string {
-	server.queue = true
+func (server *Redis) handleMULTI(client *Client) string {
+	client.queue = true
 	return "+OK\r\n"
 }
 
-func (server *Redis) handleEXEC() string {
-	if !server.queue {
+func (server *Redis) handleEXEC(client *Client) string {
+	if !client.queue {
 		return simple_err("EXEC without MULTI")
 	}
-	server.queue = false
+	client.queue = false
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("*%d\r\n", len(server.commands)))
-	for _, cmds := range server.commands {
-		b.WriteString(server.Execute(cmds))
+	b.WriteString(fmt.Sprintf("*%d\r\n", len(client.commands)))
+	for _, cmds := range client.commands {
+		b.WriteString(server.Execute(client, cmds))
 	}
-	server.commands = [][]string{}
+	client.commands = [][]string{}
 	return b.String()
 }
 
-func (server *Redis) Execute(args []string) string {
+func (server *Redis) Execute(client *Client, args []string) string {
 	cmd := strings.ToUpper(args[0])
 	switch cmd {
 	case "ECHO":
@@ -564,9 +571,9 @@ func (server *Redis) Execute(args []string) string {
 		return server.handleINCR(args[1:])
 
 	case "MULTI":
-		return server.handleMULTI()
+		return server.handleMULTI(client)
 	case "EXEC":
-		return server.handleEXEC()
+		return server.handleEXEC(client)
 
 	default:
 		return "-ERR \r\n"
@@ -575,6 +582,7 @@ func (server *Redis) Execute(args []string) string {
 
 func (server *Redis) handleConnection(conn net.Conn) {
 	defer conn.Close()
+	client := &Client{}
 	for {
 		buf := make([]byte, 1024)
 		n, err := conn.Read(buf)
@@ -596,11 +604,11 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			}
 		}
 		resp := ""
-		if strings.ToUpper(args[0]) != "EXEC" && server.queue {
-			server.commands = append(server.commands, args)
+		if strings.ToUpper(args[0]) != "EXEC" && client.queue {
+			client.commands = append(client.commands, args)
 			resp = "+QUEUED\r\n"
 		} else {
-			resp = server.Execute(args)
+			resp = server.Execute(client, args)
 		}
 		_, err = conn.Write([]byte(resp))
 		if err != nil {
