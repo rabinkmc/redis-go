@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -703,13 +704,17 @@ func (server *Redis) Execute(client *Client, args []string) string {
 }
 
 func (server *Redis) writeFile(conn net.Conn) {
-	f, err := os.Open("dump.rdb")
+	emptyRDB := "" +
+		"524544495330303131fa0972656469732d76657205372e322e30" +
+		"fa0a72656469732d62697473c040fa056374696d65c26d08bc65" +
+		"fa08757365642d6d656dc2b0c41000fa08616f662d62617365c0" +
+		"00fff06e3bfec0ff5aa2"
+	bytes, err := hex.DecodeString(emptyRDB)
 	if err != nil {
-		log.Fatalf("Error opening dump.db: %v", err)
+		log.Fatalf("Error decoding hex string: %v", err.Error())
 	}
-	defer f.Close()
 
-	data, err := io.ReadAll(f)
+	data := string(bytes)
 	resp := fmt.Sprintf("$%d\r\n%s", len(data), data)
 	_, err = conn.Write([]byte(resp))
 
