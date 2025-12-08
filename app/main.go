@@ -47,6 +47,8 @@ type Client struct {
 
 func NewRedis(port int, replicaof string) *Redis {
 	replication := make(map[string]string)
+	replication["master_replid"] = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+	replication["master_repl_offset"] = "0"
 	if replicaof != "" {
 		replication["role"] = "slave"
 	} else {
@@ -559,10 +561,11 @@ func (server *Redis) handleINFO(info_key string) string {
 	if exists {
 		var b strings.Builder
 		for key, val := range section_info {
-			st := resp_bulk_string(fmt.Sprintf("%s:%s", key, val))
+			st := fmt.Sprintf("%s:%s\r\n", key, val)
 			b.WriteString(st)
 		}
-		return b.String()
+		res := b.String()
+		return resp_bulk_string(res[:len(res)-2])
 	}
 	return simple_err("Key doesn't exist")
 }
