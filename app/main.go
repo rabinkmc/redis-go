@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -29,11 +30,13 @@ type Entry struct {
 }
 
 type Redis struct {
+	port           int
 	dict           map[string]Entry
 	mu             sync.Mutex
 	waiters        map[string]chan string
 	stream_waiters map[string]chan string
 	info           map[string]map[string]string
+	replicaof      string
 }
 
 type Client struct {
@@ -42,12 +45,17 @@ type Client struct {
 	queue    bool
 }
 
-func NewRedis() *Redis {
-	replication := map[string]string{
-		"role": "master",
+func NewRedis(port int, replicaof string) *Redis {
+	replication := make(map[string]string)
+	if replicaof != "" {
+		replication["role"] = "slave"
+	} else {
+		replication["role"] = "master"
 	}
 
 	redis := &Redis{
+		replicaof:      replicaof,
+		port:           port,
 		dict:           make(map[string]Entry),
 		waiters:        make(map[string]chan string),
 		stream_waiters: make(map[string]chan string),
@@ -640,7 +648,6 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			resp = "+QUEUED\r\n"
 		} else {
 			resp = server.Execute(client, args)
-			fmt.Printf("%#v", resp)
 		}
 		_, err = conn.Write([]byte(resp))
 		if err != nil {
@@ -651,13 +658,12 @@ func (server *Redis) handleConnection(conn net.Conn) {
 }
 
 func main() {
-	port := "6379"
-	if len(os.Args) >= 3 {
-		port = os.Args[2]
-	}
-	address := fmt.Sprintf("0.0.0.0:%s", port)
+	port := flag.Int("port", 6379, "port to listen on")
+	replicaof := flag.String("replicaof", "", "host and port of master")
+	flag.Parse()
+	address := fmt.Sprintf("0.0.0.0:%d", *port)
 	l, err := net.Listen("tcp", address)
-	server := NewRedis()
+	server := NewRedis(*port, *replicaof)
 	if err != nil {
 		fmt.Printf("Failed to bind to port %s\n", port)
 		os.Exit(1)
