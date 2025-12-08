@@ -76,6 +76,19 @@ func send_replconf(conn net.Conn, port int, request []string) {
 	}
 }
 
+func send_psync(conn net.Conn, replication_id, offset string) {
+	request := []string{"PSYNC", replication_id, offset}
+	_, err := conn.Write([]byte(encode_list(request)))
+	if err != nil {
+		log.Fatalf("Error sending PSYNC:: %v: %v", request, err.Error())
+	}
+	buf := make([]byte, 1024)
+	_, err = conn.Read(buf)
+	if err != nil {
+		log.Fatalf("Error reading from the master", err.Error())
+	}
+}
+
 func NewRedis(port int, replicaof string) *Redis {
 	parts := strings.Split(replicaof, " ")
 	replication := make(map[string]string)
@@ -108,6 +121,7 @@ func NewRedis(port int, replicaof string) *Redis {
 		send_replconf(conn, redis.port, request1)
 		request2 := []string{"REPLCONF", "capa", "psync2"}
 		send_replconf(conn, redis.port, request2)
+		send_psync(conn, "?", "-1")
 	}
 	return redis
 }
@@ -618,6 +632,10 @@ func (server *Redis) handleREPLCONF(args []string) string {
 	return "+OK\r\n"
 }
 
+func (server *Redis) handlePSYNC(args []string) string {
+	return "+FULLRESYNC <REP_ID> 0\r\n"
+}
+
 func (server *Redis) Execute(client *Client, args []string) string {
 	cmd := strings.ToUpper(args[0])
 	switch cmd {
@@ -666,6 +684,8 @@ func (server *Redis) Execute(client *Client, args []string) string {
 		return server.handleINFO(args[1])
 	case "REPLCONF":
 		return server.handleREPLCONF(args[1:])
+	case "PSYNC":
+		return server.handlePSYNC(args[1:])
 
 	default:
 		return "-ERR \r\n"
