@@ -643,7 +643,6 @@ func (server *Redis) handlePSYNC(args []string) string {
 	if args[1] == "-1" {
 		args[1] = "0"
 	}
-	server.send_data = true
 	return fmt.Sprintf("+FULLRESYNC %s %s\r\n", args[0], args[1])
 }
 
@@ -724,10 +723,6 @@ func (server *Redis) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	client := &Client{}
 	for {
-		if server.send_data {
-			server.writeFile(conn)
-
-		}
 		buf := make([]byte, 1024)
 		n, err := conn.Read(buf)
 		if n == 0 { // EOF
