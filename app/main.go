@@ -37,6 +37,7 @@ type Redis struct {
 	stream_waiters map[string]chan string
 	info           map[string]map[string]string
 	replicaof      string
+	master         string
 }
 
 type Client struct {
@@ -46,13 +47,13 @@ type Client struct {
 }
 
 func NewRedis(port int, replicaof string) *Redis {
+	parts := strings.Split(replicaof, " ")
 	replication := make(map[string]string)
 	replication["master_replid"] = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
 	replication["master_repl_offset"] = "0"
-	if replicaof != "" {
+	replication["role"] = "master"
+	if len(parts) == 2 {
 		replication["role"] = "slave"
-	} else {
-		replication["role"] = "master"
 	}
 
 	redis := &Redis{
@@ -65,6 +66,27 @@ func NewRedis(port int, replicaof string) *Redis {
 
 	redis.info = make(map[string]map[string]string)
 	redis.info["replication"] = replication
+	if replication["role"] == "slave" {
+		redis.master = fmt.Sprintf("%s:%s", parts[0], parts[1])
+		conn, err := net.Dial("tcp", redis.master)
+		if err != nil {
+			log.Fatalf("Unable to connect to the master: %v", err.Error())
+		}
+		defer conn.Close()
+		_, err = conn.Write([]byte(encode_list([]string{"PING"})))
+		if err != nil {
+			log.Fatalf("Failed to send PING command to the master: %v", err.Error())
+		}
+		buf := make([]byte, 1024)
+		n, err := conn.Read(buf)
+		if err != nil {
+			log.Fatalf("Error reading from the master", err.Error())
+		}
+
+		if string(buf[:n]) != "+PONG\r\n" {
+			log.Fatalf("Invalid response: %#v", string(buf[:n]))
+		}
+	}
 	return redis
 }
 
