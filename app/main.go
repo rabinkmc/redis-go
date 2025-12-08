@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -39,6 +40,7 @@ type Redis struct {
 	info           map[string]map[string]string
 	replicaof      string
 	master         string
+	send_data      bool
 }
 
 type Client struct {
@@ -641,6 +643,7 @@ func (server *Redis) handlePSYNC(args []string) string {
 	if args[1] == "-1" {
 		args[1] = "0"
 	}
+	server.send_data = true
 	return fmt.Sprintf("+FULLRESYNC %s %s\r\n", args[0], args[1])
 }
 
@@ -700,10 +703,31 @@ func (server *Redis) Execute(client *Client, args []string) string {
 	}
 }
 
+func (server *Redis) writeFile(conn net.Conn) {
+	f, err := os.Open("dump.rdb")
+	if err != nil {
+		log.Fatalf("Error opening dump.db: %v", err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	resp := fmt.Sprintf("$%d\r\n%s", len(data), data)
+	_, err = conn.Write([]byte(resp))
+
+	if err != nil {
+		fmt.Println("Error writing to connection: ", err.Error())
+		return
+	}
+}
+
 func (server *Redis) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	client := &Client{}
 	for {
+		if server.send_data {
+			server.writeFile(conn)
+
+		}
 		buf := make([]byte, 1024)
 		n, err := conn.Read(buf)
 		if n == 0 { // EOF
@@ -734,6 +758,9 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		if err != nil {
 			fmt.Println("Error writing to connection: ", err.Error())
 			return
+		}
+		if cmd == "PSYNC" {
+			server.writeFile(conn)
 		}
 	}
 }
