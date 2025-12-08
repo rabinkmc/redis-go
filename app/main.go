@@ -77,13 +77,7 @@ func send_replconf(conn net.Conn, port int, request []string) {
 	}
 }
 
-func send_psync(replication map[string]string, conn net.Conn, replication_id, offset string) {
-	if replication_id == "?" {
-		replication_id = replication["master_replid"]
-	}
-	if offset == "-1" {
-		offset = "0"
-	}
+func send_psync(conn net.Conn, replication_id, offset string) {
 	request := []string{"PSYNC", replication_id, offset}
 	_, err := conn.Write([]byte(encode_list(request)))
 	if err != nil {
@@ -107,6 +101,7 @@ func NewRedis(port int, replicaof string) *Redis {
 	}
 
 	redis := &Redis{
+		id:             "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
 		replicaof:      replicaof,
 		port:           port,
 		dict:           make(map[string]Entry),
@@ -128,7 +123,7 @@ func NewRedis(port int, replicaof string) *Redis {
 		send_replconf(conn, redis.port, request1)
 		request2 := []string{"REPLCONF", "capa", "psync2"}
 		send_replconf(conn, redis.port, request2)
-		send_psync(replication, conn, "?", "-1")
+		send_psync(conn, "?", "-1")
 	}
 	return redis
 }
@@ -640,6 +635,12 @@ func (server *Redis) handleREPLCONF(args []string) string {
 }
 
 func (server *Redis) handlePSYNC(args []string) string {
+	if args[0] == "?" {
+		args[0] = server.id
+	}
+	if args[1] == "-1" {
+		args[1] = "0"
+	}
 	return fmt.Sprintf("+FULLRESYNC %s %s\r\n", args[0], args[1])
 }
 
