@@ -30,6 +30,7 @@ type Entry struct {
 }
 
 type Redis struct {
+	id             string
 	port           int
 	dict           map[string]Entry
 	mu             sync.Mutex
@@ -76,7 +77,13 @@ func send_replconf(conn net.Conn, port int, request []string) {
 	}
 }
 
-func send_psync(conn net.Conn, replication_id, offset string) {
+func send_psync(replication map[string]string, conn net.Conn, replication_id, offset string) {
+	if replication_id == "?" {
+		replication_id = replication["master_replid"]
+	}
+	if offset == "-1" {
+		offset = "0"
+	}
 	request := []string{"PSYNC", replication_id, offset}
 	_, err := conn.Write([]byte(encode_list(request)))
 	if err != nil {
@@ -121,7 +128,7 @@ func NewRedis(port int, replicaof string) *Redis {
 		send_replconf(conn, redis.port, request1)
 		request2 := []string{"REPLCONF", "capa", "psync2"}
 		send_replconf(conn, redis.port, request2)
-		send_psync(conn, "?", "-1")
+		send_psync(replication, conn, "?", "-1")
 	}
 	return redis
 }
@@ -633,7 +640,7 @@ func (server *Redis) handleREPLCONF(args []string) string {
 }
 
 func (server *Redis) handlePSYNC(args []string) string {
-	return "+FULLRESYNC <REP_ID> 0\r\n"
+	return fmt.Sprintf("+FULLRESYNC %s %s\r\n", args[0], args[1])
 }
 
 func (server *Redis) Execute(client *Client, args []string) string {
