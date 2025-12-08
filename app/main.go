@@ -46,6 +46,36 @@ type Client struct {
 	queue    bool
 }
 
+func send_ping(conn net.Conn) {
+	_, err := conn.Write([]byte(encode_list([]string{"PING"})))
+	if err != nil {
+		log.Fatalf("Failed to send PING command to the master: %v", err.Error())
+	}
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		log.Fatalf("Error reading from the master", err.Error())
+	}
+
+	if string(buf[:n]) != "+PONG\r\n" {
+		log.Fatalf("Invalid response: %#v", string(buf[:n]))
+	}
+}
+func send_replconf(conn net.Conn, port int, request []string) {
+	_, err := conn.Write([]byte(encode_list(request)))
+	if err != nil {
+		log.Fatalf("Error sending replconf:: %v: %v", request, err.Error())
+	}
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		log.Fatalf("Error reading from the master", err.Error())
+	}
+	if string(buf[:n]) != "+OK\r\n" {
+		log.Fatalf("Invalid response: %#v", string(buf[:n]))
+	}
+}
+
 func NewRedis(port int, replicaof string) *Redis {
 	parts := strings.Split(replicaof, " ")
 	replication := make(map[string]string)
@@ -69,23 +99,15 @@ func NewRedis(port int, replicaof string) *Redis {
 	if replication["role"] == "slave" {
 		redis.master = fmt.Sprintf("%s:%s", parts[0], parts[1])
 		conn, err := net.Dial("tcp", redis.master)
+		defer conn.Close()
 		if err != nil {
 			log.Fatalf("Unable to connect to the master: %v", err.Error())
 		}
-		defer conn.Close()
-		_, err = conn.Write([]byte(encode_list([]string{"PING"})))
-		if err != nil {
-			log.Fatalf("Failed to send PING command to the master: %v", err.Error())
-		}
-		buf := make([]byte, 1024)
-		n, err := conn.Read(buf)
-		if err != nil {
-			log.Fatalf("Error reading from the master", err.Error())
-		}
-
-		if string(buf[:n]) != "+PONG\r\n" {
-			log.Fatalf("Invalid response: %#v", string(buf[:n]))
-		}
+		send_ping(conn)
+		request1 := []string{"REPLCONF", "listening-port", fmt.Sprintf("%d", port)}
+		send_replconf(conn, redis.port, request1)
+		request2 := []string{"REPLCONF", "capa", "psync2"}
+		send_replconf(conn, redis.port, request2)
 	}
 	return redis
 }
@@ -592,6 +614,10 @@ func (server *Redis) handleINFO(info_key string) string {
 	return simple_err("Key doesn't exist")
 }
 
+func (server *Redis) handleREPLCONF(args []string) string {
+	return "+OK\r\n"
+}
+
 func (server *Redis) Execute(client *Client, args []string) string {
 	cmd := strings.ToUpper(args[0])
 	switch cmd {
@@ -638,6 +664,8 @@ func (server *Redis) Execute(client *Client, args []string) string {
 		return server.handleEXEC(client)
 	case "INFO":
 		return server.handleINFO(args[1])
+	case "REPLCONF":
+		return server.handleREPLCONF(args[1:])
 
 	default:
 		return "-ERR \r\n"
