@@ -33,6 +33,7 @@ type Redis struct {
 	mu             sync.Mutex
 	waiters        map[string]chan string
 	stream_waiters map[string]chan string
+	info           map[string]map[string]string
 }
 
 type Client struct {
@@ -42,11 +43,19 @@ type Client struct {
 }
 
 func NewRedis() *Redis {
-	return &Redis{
+	replication := map[string]string{
+		"role": "master",
+	}
+
+	redis := &Redis{
 		dict:           make(map[string]Entry),
 		waiters:        make(map[string]chan string),
 		stream_waiters: make(map[string]chan string),
 	}
+
+	redis.info = make(map[string]map[string]string)
+	redis.info["replication"] = replication
+	return redis
 }
 
 func (server *Redis) handlePING() string {
@@ -54,7 +63,7 @@ func (server *Redis) handlePING() string {
 }
 
 func (server *Redis) handleECHO(arg string) string {
-	return encode(arg)
+	return resp_bulk_string(arg)
 }
 
 func (server *Redis) handleSET(args []string) string {
@@ -86,7 +95,7 @@ func (server *Redis) handleGET(key string) string {
 		return "$-1\r\n"
 	}
 
-	return encode(entry.val)
+	return resp_bulk_string(entry.val)
 }
 
 func (server *Redis) handleRPUSH(args []string) string {
@@ -211,7 +220,7 @@ func (server *Redis) handleLPOP(args []string) string {
 		front := entry.list[0]
 		entry.list = entry.list[1:]
 		server.dict[key] = entry
-		return encode(front)
+		return resp_bulk_string(front)
 	}
 }
 
@@ -344,13 +353,13 @@ func (server *Redis) handleXADD(args []string) string {
 	server.dict[key] = entry
 
 	if ch, exists := server.stream_waiters[key+","+"$"]; exists {
-		arr := "*1\r\n" + "*2\r\n" + encode(stream.id) + encode_list(stream.items)
-		xread_val := "*1\r\n" + "*2\r\n" + encode(key) + arr
+		arr := "*1\r\n" + "*2\r\n" + resp_bulk_string(stream.id) + encode_list(stream.items)
+		xread_val := "*1\r\n" + "*2\r\n" + resp_bulk_string(key) + arr
 		delete(server.waiters, key)
 		go func() {
 			ch <- xread_val
 		}()
-		return encode(stream.id)
+		return resp_bulk_string(stream.id)
 	}
 
 	// brute force solution
@@ -362,15 +371,15 @@ func (server *Redis) handleXADD(args []string) string {
 		if parts[1] >= id {
 			continue
 		}
-		arr := "*1\r\n" + "*2\r\n" + encode(stream.id) + encode_list(stream.items)
-		xread_val := "*1\r\n" + "*2\r\n" + encode(key) + arr
+		arr := "*1\r\n" + "*2\r\n" + resp_bulk_string(stream.id) + encode_list(stream.items)
+		xread_val := "*1\r\n" + "*2\r\n" + resp_bulk_string(key) + arr
 		delete(server.waiters, key)
 		go func() {
 			ch <- xread_val
 		}()
 	}
 
-	return encode(stream.id)
+	return resp_bulk_string(stream.id)
 }
 
 func (server *Redis) handleXRANGE(args []string) string {
@@ -393,7 +402,7 @@ func (server *Redis) handleXRANGE(args []string) string {
 	var b strings.Builder
 	for i := start_index; i <= end_index; i++ {
 		stream := entry.streams[i]
-		curr_str := "*2\r\n" + encode(stream.id) + encode_list(stream.items)
+		curr_str := "*2\r\n" + resp_bulk_string(stream.id) + encode_list(stream.items)
 		stream_count += 1
 		b.WriteString(curr_str)
 	}
@@ -485,13 +494,13 @@ func (server *Redis) handleXREADSINGLE(key, stream_id string) string {
 	// entry.StreamMS should hold the MS_Key and give me the starting address
 
 	for i := start_idx; i <= end_idx; i++ {
-		curr_str := "*2\r\n" + encode(entry.streams[i].id) + encode_list(entry.streams[i].items)
+		curr_str := "*2\r\n" + resp_bulk_string(entry.streams[i].id) + encode_list(entry.streams[i].items)
 		result = result + curr_str
 		stream_count += 1
 	}
 	// handle for end_idx
 	value := fmt.Sprintf("*%d\r\n%s", stream_count, result)
-	final := "*2\r\n" + encode(key) + value
+	final := "*2\r\n" + resp_bulk_string(key) + value
 	return final
 }
 
@@ -535,6 +544,19 @@ func (server *Redis) handleEXEC(client *Client) string {
 	}
 	client.commands = [][]string{}
 	return b.String()
+}
+
+func (server *Redis) handleINFO(info_key string) string {
+	section_info, exists := server.info[info_key]
+	if exists {
+		var b strings.Builder
+		for key, val := range section_info {
+			st := resp_bulk_string(fmt.Sprintf("%s:%s", key, val))
+			b.WriteString(st)
+		}
+		return b.String()
+	}
+	return simple_err("Key doesn't exist")
 }
 
 func (server *Redis) Execute(client *Client, args []string) string {
@@ -581,6 +603,8 @@ func (server *Redis) Execute(client *Client, args []string) string {
 		return server.handleDISCARD(client)
 	case "EXEC":
 		return server.handleEXEC(client)
+	case "INFO":
+		return server.handleINFO(args[1])
 
 	default:
 		return "-ERR \r\n"
@@ -602,7 +626,6 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		}
 		cmd_line := string(buf[:n])
 		params := strings.Split(cmd_line, "\r\n")
-
 		args := []string{}
 		for i := 1; i < len(params); i++ {
 			if len(params[i]) > 0 && params[i][0] == '$' {
@@ -617,6 +640,7 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			resp = "+QUEUED\r\n"
 		} else {
 			resp = server.Execute(client, args)
+			fmt.Printf("%#v", resp)
 		}
 		_, err = conn.Write([]byte(resp))
 		if err != nil {

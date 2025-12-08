@@ -10,7 +10,7 @@ func resp_int(num int) string {
 	return fmt.Sprintf(":%d\r\n", num)
 }
 
-func encode(str string) string {
+func resp_bulk_string(str string) string {
 	result := fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
 	return result
 }
