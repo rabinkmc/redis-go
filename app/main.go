@@ -783,7 +783,6 @@ func parse_resp_arr(reader *bufio.Reader, arr_size int) []string {
 		if err != nil {
 			log.Fatalf("Error reading buffer of size: %d", size)
 		}
-		log.Println("size", size, string(buf))
 		args = append(args, string(buf))
 		reader.ReadString('\n')
 	}
