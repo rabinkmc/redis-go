@@ -7,7 +7,7 @@ import (
 func TestINCR(t *testing.T) {
 
 	t.Run("key exist and is numeric value", func(t *testing.T) {
-		server := NewRedis()
+		server := NewRedis(6389, "")
 		entry := Entry{val: "5"}
 		server.dict["foo"] = entry
 		got := server.Execute([]string{"INCR", "foo"})
@@ -17,7 +17,7 @@ func TestINCR(t *testing.T) {
 	})
 
 	t.Run("key doesn't exist", func(t *testing.T) {
-		server := NewRedis()
+		server := NewRedis(6389, "")
 		got := server.Execute([]string{"INCR", "pears"})
 		if got != resp_int(1) {
 			t.Fatalf("Invalid, %#v", got)
@@ -25,7 +25,7 @@ func TestINCR(t *testing.T) {
 	})
 
 	t.Run("key exist and is non numeric", func(t *testing.T) {
-		server := NewRedis()
+		server := NewRedis(6389, "")
 		entry := Entry{val: "foo"}
 		server.dict["foo"] = entry
 		got := server.Execute([]string{"INCR", "foo"})

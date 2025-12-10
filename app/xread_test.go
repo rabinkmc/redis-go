@@ -10,7 +10,7 @@ func TestXREAD(t *testing.T) {
 		{"some_key", "0-1", "temperature", "36", "humidity", "95"},
 		{"some_key", "0-2", "temperature", "37", "humidity", "94"},
 	}
-	server := NewRedis()
+	server := NewRedis(6389, "")
 	for _, cmd := range xadd_cmds {
 		server.handleXADD(cmd)
 	}
