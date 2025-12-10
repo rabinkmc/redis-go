@@ -729,7 +729,6 @@ func (server *Redis) Execute(conn net.Conn, client *Client, args []string) strin
 		}
 	case "INCR":
 		return server.handleINCR(args[1:])
-
 	case "MULTI":
 		return server.handleMULTI(client)
 	case "DISCARD":
