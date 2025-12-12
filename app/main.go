@@ -934,6 +934,7 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		resp := ""
 		if cmd == "WAIT" {
 			server.handleWAIT(conn, args[1:])
+			continue
 		}
 		if cmd == "REPLCONF" {
 			server.handleREPLCONF(conn, args[1:])
