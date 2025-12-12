@@ -148,7 +148,15 @@ func NewRedis(port int, replicaof string) *Redis {
 		send_replconf(conn, redis.port, request1)
 		request2 := []string{"REPLCONF", "capa", "psync2"}
 		send_replconf(conn, redis.port, request2)
-		go redis.handleReplConnection(conn)
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			redis.handleReplConnection(conn)
+		}()
+
+		wg.Wait()
 		send_psync(conn, "?", "-1")
 	}
 	return redis
