@@ -113,22 +113,6 @@ func send_psync(conn net.Conn, replication_id, offset string) {
 	if err != nil {
 		log.Fatalf("Error sending PSYNC:: %v: %v\n", request, err.Error())
 	}
-	reader := bufio.NewReader(conn)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		log.Fatalf("Error reading from the master psync1\n", err.Error())
-	}
-	line, err = reader.ReadString('\n')
-	line = strings.TrimSuffix(line, "\r\n")
-	rdb_size, err := strconv.Atoi(line[1:])
-	if err != nil {
-		log.Fatalf("Unable to parse rdb size")
-	}
-	buf := make([]byte, rdb_size)
-	_, err = io.ReadFull(reader, buf)
-	if err != nil {
-		log.Fatalf("Error reading rdb file")
-	}
 }
 
 func NewRedis(port int, replicaof string) *Redis {
@@ -835,7 +819,25 @@ func (server *Redis) handlePropagation(conn net.Conn) {
 
 func (server *Redis) handleReplConnection(conn net.Conn) {
 	defer conn.Close()
+	reader := bufio.NewReader(conn)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		log.Fatalf("Error reading from the master psync1\n", err.Error())
+	}
+	line, err = reader.ReadString('\n')
+	line = strings.TrimSuffix(line, "\r\n")
+	rdb_size, err := strconv.Atoi(line[1:])
+	if err != nil {
+		log.Fatalf("Unable to parse rdb size")
+	}
+	buf := make([]byte, rdb_size)
+	_, err = io.ReadFull(reader, buf)
+	if err != nil {
+		log.Fatalf("Error reading rdb file")
+	}
+
 	client := &Client{}
+	// resp arrays
 	for {
 		reader := bufio.NewReader(conn)
 		line, err := reader.ReadString('\n')
