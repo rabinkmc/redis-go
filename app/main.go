@@ -782,7 +782,6 @@ func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) 
 	client := &Client{}
 	reader := bufio.NewReader(conn)
 	for {
-		fmt.Println("Am i here from master: %s %s", conn.RemoteAddr(), conn.LocalAddr())
 		ch, err := reader.ReadByte()
 		if err == io.EOF {
 			log.Println("Master closed connection")
@@ -834,8 +833,10 @@ func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) 
 				log.Fatalf("Args not provided")
 			}
 			cmd := strings.ToUpper(args[0])
-
-			if cmd != "DISCARD" && cmd != "EXEC" && client.queue {
+			if cmd == "REPLCONF" && strings.ToUpper(args[1]) == "GETACK" {
+				resp := encode_list([]string{"REPLCONF", "ACK", "0"})
+				conn.Write([]byte(resp))
+			} else if cmd != "DISCARD" && cmd != "EXEC" && client.queue {
 				client.commands = append(client.commands, args)
 			} else {
 				server.Execute(conn, client, args)
