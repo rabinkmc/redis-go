@@ -164,8 +164,8 @@ func NewRedis(port int, replicaof string) *Redis {
 		send_replconf(conn, redis.port, request1)
 		request2 := []string{"REPLCONF", "capa", "psync2"}
 		send_replconf(conn, redis.port, request2)
-		send_psync(conn, "?", "-1")
 		go redis.handleReplConnection(conn)
+		send_psync(conn, "?", "-1")
 	}
 	return redis
 }
