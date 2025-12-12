@@ -82,14 +82,10 @@ func send_ping(conn net.Conn) {
 	if err != nil {
 		log.Fatalf("Failed to send PING command to the master: %v", err.Error())
 	}
-	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
+	reader := bufio.NewReader(conn)
+	_, err = reader.ReadString('\n')
 	if err != nil {
-		log.Fatalf("Error reading from the master: ping", err.Error())
-	}
-
-	if string(buf[:n]) != "+PONG\r\n" {
-		log.Fatalf("Invalid response: expected +PONG %#v", string(buf[:n]))
+		log.Fatal("Erorr reading from the conn\n")
 	}
 }
 func send_replconf(conn net.Conn, port int, request []string) {
@@ -97,13 +93,10 @@ func send_replconf(conn net.Conn, port int, request []string) {
 	if err != nil {
 		log.Fatalf("Error sending replconf:: %v: %v", request, err.Error())
 	}
-	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
+	reader := bufio.NewReader(conn)
+	_, err = reader.ReadString('\n')
 	if err != nil {
-		log.Fatalf("Error reading from the master: replconf", err.Error())
-	}
-	if string(buf[:n]) != "+OK\r\n" {
-		log.Fatalf("Invalid response expected +OK: %#v", string(buf[:n]))
+		log.Fatal("Erorr reading from the conn\n")
 	}
 }
 
@@ -148,15 +141,7 @@ func NewRedis(port int, replicaof string) *Redis {
 		send_replconf(conn, redis.port, request1)
 		request2 := []string{"REPLCONF", "capa", "psync2"}
 		send_replconf(conn, redis.port, request2)
-		var wg sync.WaitGroup
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-			redis.handleReplConnection(conn)
-		}()
-
-		wg.Wait()
+		go redis.handleReplConnection(conn)
 		send_psync(conn, "?", "-1")
 	}
 	return redis
