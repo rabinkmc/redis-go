@@ -719,22 +719,23 @@ func (server *Redis) handlePSYNC(conn net.Conn, args []string) {
 }
 
 func (server *Redis) handleWAIT(conn net.Conn, args []string) {
-	replicas, _ := strconv.Atoi(args[0])
+	// replicas, _ := strconv.Atoi(args[0])
 	n := len(server.slaves)
-	if n >= replicas {
-		conn.Write([]byte(resp_int(n)))
-	}
-	ch := make(chan bool)
-	server.replica_waiters[replicas] = ch
+	conn.Write([]byte(resp_int(n)))
+	// if n >= replicas {
+	// 	conn.Write([]byte(resp_int(n)))
+	// }
+	// ch := make(chan bool)
+	// server.replica_waiters[replicas] = ch
 
-	mtime, _ := strconv.ParseFloat(args[1], 64)
-	timeout := time.Duration(mtime) * time.Millisecond
-	select {
-	case <-ch:
-		conn.Write([]byte(resp_int(replicas)))
-	case <-time.After(timeout):
-		conn.Write([]byte(resp_int(n)))
-	}
+	// mtime, _ := strconv.ParseFloat(args[1], 64)
+	// timeout := time.Duration(mtime) * time.Millisecond
+	// select {
+	// case <-ch:
+	// 	conn.Write([]byte(resp_int(replicas)))
+	// case <-time.After(timeout):
+	// 	conn.Write([]byte(resp_int(n)))
+	// }
 }
 
 func (server *Redis) Execute(conn net.Conn, client *Client, args []string) string {
