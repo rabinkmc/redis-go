@@ -113,10 +113,21 @@ func send_psync(conn net.Conn, replication_id, offset string) {
 	if err != nil {
 		log.Fatalf("Error sending PSYNC:: %v: %v\n", request, err.Error())
 	}
-	buf := make([]byte, 1024)
-	_, err = conn.Read(buf)
+	reader := bufio.NewReader(conn)
+	line, err := reader.ReadString('\n')
 	if err != nil {
 		log.Fatalf("Error reading from the master psync1\n", err.Error())
+	}
+	line, err = reader.ReadString('\n')
+	line = strings.TrimSuffix(line, "\r\n")
+	rdb_size, err := strconv.Atoi(line[1:])
+	if err != nil {
+		log.Fatalf("Unable to parse rdb size")
+	}
+	buf := make([]byte, rdb_size)
+	_, err = io.ReadFull(reader, buf)
+	if err != nil {
+		log.Fatalf("Error reading rdb file")
 	}
 }
 
@@ -154,26 +165,6 @@ func NewRedis(port int, replicaof string) *Redis {
 		request2 := []string{"REPLCONF", "capa", "psync2"}
 		send_replconf(conn, redis.port, request2)
 		send_psync(conn, "?", "-1")
-
-		// reading rdb file
-		reader := bufio.NewReader(conn)
-		_, err = reader.ReadString('\n')
-		if err != nil {
-			log.Println("Error acknowledging psync")
-		}
-		line, err := reader.ReadString('\n')
-		line = strings.TrimSuffix(line, "\r\n")
-		rdb_size, err := strconv.Atoi(line[1:])
-		if err != nil {
-			log.Fatalf("Unable to parse rdb size")
-		}
-		buf := make([]byte, rdb_size)
-		_, err = io.ReadFull(reader, buf)
-		if err != nil {
-			log.Fatalf("Error reading rdb file")
-		}
-		redis.handlePropagation(conn)
-
 		go redis.handleReplConnection(conn)
 	}
 	return redis
@@ -765,8 +756,7 @@ func (server *Redis) Execute(conn net.Conn, client *Client, args []string) strin
 }
 
 func (server *Redis) writeFile(conn net.Conn) {
-	emptyRDB := "" +
-		"524544495330303131fa0972656469732d76657205372e322e30" +
+	emptyRDB := "524544495330303131fa0972656469732d76657205372e322e30" +
 		"fa0a72656469732d62697473c040fa056374696d65c26d08bc65" +
 		"fa08757365642d6d656dc2b0c41000fa08616f662d62617365c0" +
 		"00fff06e3bfec0ff5aa2"
@@ -778,6 +768,7 @@ func (server *Redis) writeFile(conn net.Conn) {
 	data := string(bytes)
 	resp := fmt.Sprintf("$%d\r\n%s", len(data), data)
 	_, err = conn.Write([]byte(resp))
+	log.Println(resp)
 
 	if err != nil {
 		log.Fatalf("Error writing to connection: ", err.Error())
@@ -807,75 +798,6 @@ func parse_resp_arr(reader *bufio.Reader, arr_size int) []string {
 	}
 	log.Printf("resp_arr: %s\n", args)
 	return args
-}
-
-func readRDB(conn net.Conn) {
-	reader := bufio.NewReader(conn)
-	line, err := reader.ReadString('\n')
-	log.Printf("Read from master: %q", line)
-	if err != nil {
-		if err == io.EOF {
-			return
-		} else {
-			log.Fatal("Erorr reading from the conn\n")
-		}
-	}
-	if line[0] != '$' {
-		log.Fatal("invalid param")
-	}
-	line = strings.TrimSuffix(line, "\r\n")
-	rdb_size, err := strconv.Atoi(line[1:])
-	if err != nil {
-		log.Fatalf("Unable to parse rdb size")
-	}
-	buf := make([]byte, rdb_size)
-	_, err = io.ReadFull(reader, buf)
-	if err != nil {
-		log.Fatalf("Error reading rdb file")
-	}
-}
-
-func single_request(server *Redis, conn net.Conn, client *Client) {
-	reader := bufio.NewReader(conn)
-	line, err := reader.ReadString('\n')
-	log.Printf("Read from master: %q", line)
-	if err != nil {
-		if err == io.EOF {
-			return
-		} else {
-			log.Fatal("Erorr reading from the conn\n")
-		}
-	}
-	if line[0] == '$' {
-		line = strings.TrimSuffix(line, "\r\n")
-		rdb_size, err := strconv.Atoi(line[1:])
-		if err != nil {
-			log.Fatalf("Unable to parse rdb size")
-		}
-		buf := make([]byte, rdb_size)
-		_, err = io.ReadFull(reader, buf)
-		if err != nil {
-			log.Fatalf("Error reading rdb file")
-		}
-		return
-	}
-	line = strings.TrimSuffix(line, "\r\n")
-	arr_size, err := strconv.Atoi(line[1:])
-	if err != nil {
-		log.Fatalf("Error parsing integer value: %v", err.Error())
-	}
-	// resp arr
-	args := parse_resp_arr(reader, arr_size)
-	if len(args) == 0 {
-		log.Fatalf("Args not provided")
-	}
-	cmd := strings.ToUpper(args[0])
-
-	if cmd != "DISCARD" && cmd != "EXEC" && client.queue {
-		client.commands = append(client.commands, args)
-	} else {
-		server.Execute(conn, client, args)
-	}
 }
 
 func (server *Redis) handlePropagation(conn net.Conn) {
@@ -915,7 +837,6 @@ func (server *Redis) handleReplConnection(conn net.Conn) {
 	defer conn.Close()
 	client := &Client{}
 	for {
-		log.Printf("Read from master")
 		reader := bufio.NewReader(conn)
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -932,6 +853,7 @@ func (server *Redis) handleReplConnection(conn net.Conn) {
 		}
 		// resp arr
 		args := parse_resp_arr(reader, arr_size)
+		fmt.Println("repl connection:", args)
 		if len(args) == 0 {
 			log.Fatalf("Args not provided")
 		}
