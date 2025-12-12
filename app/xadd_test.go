@@ -16,17 +16,17 @@ func TestXADD(t *testing.T) {
 		{
 			name: "XADD 1",
 			in:   []string{"stream_key", "1-*", "temperature", "36", "humidity", "95"},
-			want: encode("1-0"),
+			want: resp_bulk_string("1-0"),
 		},
 		{
 			name: "XADD 2",
 			in:   []string{"stream_key", "1-*", "temperature", "36", "humidity", "95"},
-			want: encode("1-1"),
+			want: resp_bulk_string("1-1"),
 		},
 		{
 			name: "XADD 3",
 			in:   []string{"stream_key", "3-*", "temperature", "36", "humidity", "95"},
-			want: encode("3-0"),
+			want: resp_bulk_string("3-0"),
 		},
 		{
 			name: "XADD 4",
@@ -35,7 +35,7 @@ func TestXADD(t *testing.T) {
 		},
 	}
 
-	server := NewRedis()
+	server := NewRedis(6389, "")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := server.handleXADD(tt.in)
@@ -57,7 +57,7 @@ func TestXADDA(t *testing.T) {
 		},
 	}
 
-	server := NewRedis()
+	server := NewRedis(6389, "")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server.handleXADD(tt.in)

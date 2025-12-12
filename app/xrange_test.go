@@ -14,17 +14,17 @@ func TestXRANGE(t *testing.T) {
 		{
 			name: "XADD1",
 			in:   []string{"some_key", "0-1", "temperature", "36", "humidity", "95"},
-			want: encode("0-1"),
+			want: resp_bulk_string("0-1"),
 		},
 		{
 			name: "XADD2",
 			in:   []string{"some_key", "0-2", "temperature", "37", "humidity", "94"},
-			want: encode("0-2"),
+			want: resp_bulk_string("0-2"),
 		},
 		{
 			name: "XADD3",
 			in:   []string{"some_key", "0-3", "temperature", "38", "humidity", "93"},
-			want: encode("0-3"),
+			want: resp_bulk_string("0-3"),
 		},
 	}
 

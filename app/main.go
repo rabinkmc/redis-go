@@ -52,7 +52,10 @@ type Client struct {
 }
 
 func isReplicationCmd(cmd string) bool {
-	replication_cmds := []string{"SET", "RPUSH", "LPUSH", "LPOP", "BLPOP", "XADD", "INCR", "MULTI", "DISCARD", "EXEC"}
+	replication_cmds := []string{
+		"SET", "RPUSH", "LPUSH", "LPOP", "BLPOP",
+		"XADD", "INCR", "MULTI", "DISCARD", "EXEC",
+	}
 	for i := 0; i < len(replication_cmds); i++ {
 		if cmd == replication_cmds[i] {
 			return true
@@ -80,13 +83,19 @@ func (server *Redis) write_slaves(cmd string, buf []byte) {
 func send_ping(conn net.Conn) {
 	_, err := conn.Write([]byte(encode_list([]string{"PING"})))
 	if err != nil {
-		log.Fatalf("Failed to send PING command to the master: %v", err.Error())
+		log.Fatalf(
+			"Failed to send PING command to the master: %v",
+			err.Error(),
+		)
 	}
 }
 func send_replconf(conn net.Conn, port int, request []string) {
 	_, err := conn.Write([]byte(encode_list(request)))
 	if err != nil {
-		log.Fatalf("Error sending replconf:: %v: %v", request, err.Error())
+		log.Fatalf(
+			"Error sending replconf:: %v: %v",
+			request, err.Error(),
+		)
 	}
 }
 
@@ -94,7 +103,10 @@ func send_psync(conn net.Conn, replication_id, offset string) {
 	request := []string{"PSYNC", replication_id, offset}
 	_, err := conn.Write([]byte(encode_list(request)))
 	if err != nil {
-		log.Fatalf("Error sending PSYNC:: %v: %v\n", request, err.Error())
+		log.Fatalf(
+			"Error sending PSYNC:: %v: %v\n",
+			request, err.Error(),
+		)
 	}
 }
 
@@ -744,7 +756,7 @@ func (server *Redis) writeFile(conn net.Conn) {
 	_, err = conn.Write([]byte(resp))
 
 	if err != nil {
-		log.Fatalf("Error writing to connection: ", err.Error())
+		log.Fatalf("Error writing to connection: %v", err.Error())
 		return
 	}
 }
@@ -780,6 +792,7 @@ func parse_resp_arr(reader *bufio.Reader, arr_size int) []string {
 func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) {
 	defer conn.Close()
 	client := &Client{}
+	offset := 0
 	reader := bufio.NewReader(conn)
 	for {
 		ch, err := reader.ReadByte()
@@ -819,7 +832,6 @@ func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) 
 			}
 		case '*':
 			// propagation commands
-			log.Println("here in resp array")
 			line, err := reader.ReadString('\n')
 			line = strings.TrimSuffix(line, "\r\n")
 			arr_size, err := strconv.Atoi(line[:])
@@ -833,14 +845,16 @@ func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) 
 				log.Fatalf("Args not provided")
 			}
 			cmd := strings.ToUpper(args[0])
+			curr_length := len(encode_list(args))
 			if cmd == "REPLCONF" && strings.ToUpper(args[1]) == "GETACK" {
-				resp := encode_list([]string{"REPLCONF", "ACK", "0"})
+				resp := encode_list([]string{"REPLCONF", "ACK", strconv.Itoa(offset)})
 				conn.Write([]byte(resp))
 			} else if cmd != "DISCARD" && cmd != "EXEC" && client.queue {
 				client.commands = append(client.commands, args)
 			} else {
 				server.Execute(conn, client, args)
 			}
+			offset = offset + curr_length
 		}
 	}
 }
@@ -896,7 +910,7 @@ func main() {
 	address := fmt.Sprintf("0.0.0.0:%d", *port)
 	l, err := net.Listen("tcp", address)
 	if err != nil {
-		log.Printf("Failed to bind to port %s\n", port)
+		log.Printf("Failed to bind to port %d\n", port)
 		os.Exit(1)
 	}
 	server := NewRedis(*port, *replicaof)
