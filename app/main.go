@@ -832,6 +832,7 @@ func (server *Redis) handleReplConnection(conn net.Conn) {
 	client := &Client{}
 	// resp arrays
 	for {
+		log.Println("replication stream")
 		reader := bufio.NewReader(conn)
 		line, err := reader.ReadString('\n')
 		if err != nil {
