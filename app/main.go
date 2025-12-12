@@ -33,16 +33,18 @@ type Entry struct {
 }
 
 type Redis struct {
-	id             string
-	port           int
-	dict           map[string]Entry
-	mu             sync.Mutex
-	waiters        map[string]chan string
-	stream_waiters map[string]chan string
-	info           map[string]map[string]string
-	replicaof      string
-	master_addr    string
-	slaves         []net.Conn
+	id              string
+	port            int
+	dict            map[string]Entry
+	mu              sync.Mutex
+	waiters         map[string]chan string
+	stream_waiters  map[string]chan string
+	info            map[string]map[string]string
+	replicaof       string
+	master_addr     string
+	slaves          []net.Conn
+	replica_waiters map[int]chan bool
+	ack_slaves      map[net.Conn]bool
 }
 
 type Client struct {
@@ -121,12 +123,14 @@ func NewRedis(port int, replicaof string) *Redis {
 	}
 
 	redis := &Redis{
-		id:             "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
-		replicaof:      replicaof,
-		port:           port,
-		dict:           make(map[string]Entry),
-		waiters:        make(map[string]chan string),
-		stream_waiters: make(map[string]chan string),
+		id:              "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
+		replicaof:       replicaof,
+		port:            port,
+		dict:            make(map[string]Entry),
+		waiters:         make(map[string]chan string),
+		stream_waiters:  make(map[string]chan string),
+		replica_waiters: make(map[int]chan bool),
+		ack_slaves:      make(map[net.Conn]bool),
 	}
 
 	redis.info = make(map[string]map[string]string)
@@ -659,17 +663,39 @@ func (server *Redis) handleINFO(info_key string) string {
 	return simple_err("Key doesn't exist")
 }
 
-func (server *Redis) handleREPLCONF(conn net.Conn, args []string) string {
-	if args[0] == "listening-port" {
+func (server *Redis) handleREPLCONF(conn net.Conn, args []string) {
+	slave_exists := func(server *Redis, conn net.Conn) bool {
 		for _, c := range server.slaves {
 			if c == conn { // interface pointer equality
-				return "+OK\r\n"
+				return true
 			}
 		}
+		return false
+	}
+	cmd := strings.ToUpper(args[0])
+	if cmd == "LISTENING-PORT" {
+		if slave_exists(server, conn) {
+			conn.Write([]byte("+OK\r\n"))
+		}
+		// otherwise add
 		server.slaves = append(server.slaves, conn)
 		log.Println("Slave added:", conn)
+		conn.Write([]byte("OK\r\n"))
+	} else if cmd == "ACK" {
+		if server.ack_slaves[conn] {
+			return
+		}
+		server.ack_slaves[conn] = true
+		key := len(server.ack_slaves)
+		if ch, exists := server.replica_waiters[key]; exists {
+			delete(server.replica_waiters, key)
+			go func() {
+				ch <- true
+			}()
+		}
 	}
-	return "+OK\r\n"
+	//capa psync2
+	conn.Write([]byte("+OK\r\n"))
 }
 
 func (server *Redis) handlePSYNC(conn net.Conn, args []string) {
@@ -686,6 +712,25 @@ func (server *Redis) handlePSYNC(conn net.Conn, args []string) {
 		return
 	}
 	server.writeFile(conn)
+}
+
+func (server *Redis) handleWAIT(conn net.Conn, args []string) {
+	replicas, _ := strconv.Atoi(args[0])
+	n := len(server.slaves)
+	if n >= replicas {
+		conn.Write([]byte(resp_int(n)))
+	}
+	ch := make(chan bool)
+	server.replica_waiters[replicas] = ch
+
+	mtime, _ := strconv.ParseFloat(args[1], 64)
+	timeout := time.Duration(mtime) * time.Millisecond
+	select {
+	case <-ch:
+		conn.Write([]byte(resp_int(replicas)))
+	case <-time.After(timeout):
+		conn.Write([]byte(resp_int(n)))
+	}
 }
 
 func (server *Redis) Execute(conn net.Conn, client *Client, args []string) string {
@@ -733,9 +778,6 @@ func (server *Redis) Execute(conn net.Conn, client *Client, args []string) strin
 		return server.handleEXEC(conn, client)
 	case "INFO":
 		return server.handleINFO(args[1])
-	case "REPLCONF":
-		return server.handleREPLCONF(conn, args[1:])
-
 	default:
 		return "-ERR \r\n"
 	}
@@ -885,7 +927,13 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		}
 		cmd := strings.ToUpper(args[0])
 		resp := ""
-		if cmd == "PSYNC" {
+		if cmd == "WAIT" {
+			server.handleWAIT(conn, args[1:])
+		}
+		if cmd == "REPLCONF" {
+			server.handleREPLCONF(conn, args[1:])
+			continue
+		} else if cmd == "PSYNC" {
 			server.handlePSYNC(conn, args)
 			continue
 		} else if cmd != "DISCARD" && cmd != "EXEC" && client.queue {
