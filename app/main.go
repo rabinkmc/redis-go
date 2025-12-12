@@ -676,12 +676,15 @@ func (server *Redis) handleREPLCONF(conn net.Conn, args []string) {
 	if cmd == "LISTENING-PORT" {
 		if slave_exists(server, conn) {
 			conn.Write([]byte("+OK\r\n"))
+			return
 		}
 		// otherwise add
 		server.slaves = append(server.slaves, conn)
 		log.Println("Slave added:", conn)
-		conn.Write([]byte("OK\r\n"))
-	} else if cmd == "ACK" {
+		conn.Write([]byte("+OK\r\n"))
+		return
+	}
+	if cmd == "ACK" {
 		if server.ack_slaves[conn] {
 			return
 		}
@@ -693,6 +696,7 @@ func (server *Redis) handleREPLCONF(conn net.Conn, args []string) {
 				ch <- true
 			}()
 		}
+		return
 	}
 	//capa psync2
 	conn.Write([]byte("+OK\r\n"))
