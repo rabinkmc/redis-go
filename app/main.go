@@ -674,10 +674,6 @@ func (server *Redis) handlePSYNC(conn net.Conn, args []string) {
 		return
 	}
 	server.writeFile(conn)
-	set1 := encode_list([]string{"SET", "rabin", "28"})
-	conn.Write([]byte(set1))
-	set2 := encode_list([]string{"SET", "diya", "26"})
-	conn.Write([]byte(set2))
 }
 
 func (server *Redis) Execute(conn net.Conn, client *Client, args []string) string {
