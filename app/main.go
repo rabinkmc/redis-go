@@ -756,6 +756,7 @@ func (server *Redis) handleWAIT(conn net.Conn, args []string) {
 	case <-ch:
 		conn.Write([]byte(resp_int(replicas)))
 	case <-time.After(timeout):
+		count = server.slave_sync_count()
 		conn.Write([]byte(resp_int(count)))
 	}
 }
