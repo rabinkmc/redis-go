@@ -746,6 +746,7 @@ func (server *Redis) handleWAIT(conn net.Conn, args []string) {
 	count := server.slave_sync_count()
 	if count >= replicas {
 		conn.Write([]byte(resp_int(count)))
+		return
 	}
 	ch := make(chan int)
 	server.replica_waiters[replicas] = ch
@@ -758,6 +759,7 @@ func (server *Redis) handleWAIT(conn net.Conn, args []string) {
 	case <-time.After(timeout):
 		count = server.slave_sync_count()
 		conn.Write([]byte(resp_int(count)))
+		delete(server.replica_waiters, replicas)
 	}
 }
 
