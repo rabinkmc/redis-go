@@ -43,8 +43,8 @@ type Redis struct {
 	replicaof       string
 	master_addr     string
 	slaves          []net.Conn
-	replica_waiters map[int]chan bool
-	ack_slaves      map[net.Conn]bool
+	replica_waiters map[int]chan int
+	ack_slaves      map[net.Conn]int
 }
 
 type Client struct {
@@ -64,6 +64,16 @@ func isReplicationCmd(cmd string) bool {
 		}
 	}
 	return false
+}
+
+func (server *Redis) slave_sync_count() int {
+	maximum_offset := -1
+	counter := make(map[int]int)
+	for _, offset := range server.ack_slaves {
+		maximum_offset = max(maximum_offset, offset)
+		counter[offset] += 1
+	}
+	return counter[maximum_offset]
 }
 
 func (server *Redis) write_slaves(cmd string, buf []byte) {
@@ -129,8 +139,8 @@ func NewRedis(port int, replicaof string) *Redis {
 		dict:            make(map[string]Entry),
 		waiters:         make(map[string]chan string),
 		stream_waiters:  make(map[string]chan string),
-		replica_waiters: make(map[int]chan bool),
-		ack_slaves:      make(map[net.Conn]bool),
+		replica_waiters: make(map[int]chan int),
+		ack_slaves:      make(map[net.Conn]int),
 	}
 
 	redis.info = make(map[string]map[string]string)
@@ -685,16 +695,20 @@ func (server *Redis) handleREPLCONF(conn net.Conn, args []string) {
 		return
 	}
 	if cmd == "ACK" {
-		if server.ack_slaves[conn] {
-			return
+		offset, err := strconv.Atoi(args[1])
+		if err != nil {
+			log.Fatalf("Error parsing integer %v", err)
 		}
-		server.ack_slaves[conn] = true
-		key := len(server.ack_slaves)
-		if ch, exists := server.replica_waiters[key]; exists {
-			delete(server.replica_waiters, key)
-			go func() {
-				ch <- true
-			}()
+		server.ack_slaves[conn] = offset
+		count := server.slave_sync_count()
+		for wait_count := range server.replica_waiters {
+			ch, _ := server.replica_waiters[wait_count]
+			if count >= wait_count {
+				delete(server.replica_waiters, wait_count)
+				go func() {
+					ch <- wait_count
+				}()
+			}
 		}
 		return
 	}
@@ -719,23 +733,31 @@ func (server *Redis) handlePSYNC(conn net.Conn, args []string) {
 }
 
 func (server *Redis) handleWAIT(conn net.Conn, args []string) {
-	// replicas, _ := strconv.Atoi(args[0])
-	n := len(server.slaves)
-	conn.Write([]byte(resp_int(n)))
-	// if n >= replicas {
-	// 	conn.Write([]byte(resp_int(n)))
-	// }
-	// ch := make(chan bool)
-	// server.replica_waiters[replicas] = ch
+	replicas, _ := strconv.Atoi(args[0])
 
-	// mtime, _ := strconv.ParseFloat(args[1], 64)
-	// timeout := time.Duration(mtime) * time.Millisecond
-	// select {
-	// case <-ch:
-	// 	conn.Write([]byte(resp_int(replicas)))
-	// case <-time.After(timeout):
-	// 	conn.Write([]byte(resp_int(n)))
-	// }
+	request := []byte(encode_list([]string{"REPLCONF", "GETACK", "*"}))
+	for _, slave_conn := range server.slaves {
+		_, err := slave_conn.Write(request)
+		if err != nil {
+			log.Printf("Error writing to the connection: %v", err)
+		}
+	}
+
+	count := server.slave_sync_count()
+	if count >= replicas {
+		conn.Write([]byte(resp_int(count)))
+	}
+	ch := make(chan int)
+	server.replica_waiters[replicas] = ch
+
+	mtime, _ := strconv.ParseFloat(args[1], 64)
+	timeout := time.Duration(mtime) * time.Millisecond
+	select {
+	case <-ch:
+		conn.Write([]byte(resp_int(replicas)))
+	case <-time.After(timeout):
+		conn.Write([]byte(resp_int(count)))
+	}
 }
 
 func (server *Redis) Execute(conn net.Conn, client *Client, args []string) string {
@@ -844,8 +866,7 @@ func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) 
 	for {
 		ch, err := reader.ReadByte()
 		if err == io.EOF {
-			log.Println("Master closed connection")
-			continue
+			break
 		} else if err != nil {
 			log.Fatal("Erorr reading from the conn\n")
 		}
@@ -887,7 +908,6 @@ func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) 
 			}
 			// resp arr
 			args := parse_resp_arr(reader, arr_size)
-			fmt.Println("repl connection:", args)
 			if len(args) == 0 {
 				log.Fatalf("Args not provided")
 			}
