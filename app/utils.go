@@ -35,3 +35,13 @@ func get_time_and_seq(id string) (int64, int64) {
 	seq, _ := strconv.ParseInt(parts[1], 10, 64)
 	return time, seq
 }
+
+func (server *Redis) removeWaiter(target *WaitRequest) {
+	newWaiters := server.replica_waiters[:0]
+	for _, w := range server.replica_waiters {
+		if w != target {
+			newWaiters = append(newWaiters, w)
+		}
+	}
+	server.replica_waiters = newWaiters
+}
