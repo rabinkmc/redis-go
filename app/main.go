@@ -766,7 +766,7 @@ func (server *Redis) handleWAIT(conn net.Conn, args []string) {
 	replicas, _ := strconv.Atoi(args[0])
 	wait_offset := server.master_offset
 	count := server.slave_sync_count(wait_offset)
-	if count >= replicas {
+	if count >= replicas || wait_offset == 0 {
 		log.Println("final response", count, replicas)
 		conn.Write([]byte(resp_int(count)))
 		return
@@ -795,7 +795,6 @@ func (server *Redis) handleWAIT(conn net.Conn, args []string) {
 		conn.Write([]byte(resp_int(replicas)))
 	case <-time.After(timeout):
 		count = server.slave_sync_count(w.offset)
-		fmt.Println(count, w.offset, server.master_offset)
 		conn.Write([]byte(resp_int(count)))
 		server.removeWaiter(w)
 	}
