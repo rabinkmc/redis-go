@@ -45,6 +45,7 @@ type Redis struct {
 	slaves          []net.Conn
 	replica_waiters map[int]chan int
 	ack_slaves      map[net.Conn]int
+	master_offset   int
 }
 
 type Client struct {
@@ -53,7 +54,7 @@ type Client struct {
 	queue    bool
 }
 
-func isReplicationCmd(cmd string) bool {
+func IsWriteCmd(cmd string) bool {
 	replication_cmds := []string{
 		"SET", "RPUSH", "LPUSH", "LPOP", "BLPOP",
 		"XADD", "INCR", "MULTI", "DISCARD", "EXEC",
@@ -67,22 +68,24 @@ func isReplicationCmd(cmd string) bool {
 }
 
 func (server *Redis) slave_sync_count() int {
-	maximum_offset := -1
-	counter := make(map[int]int)
+	count := 0
 	for _, offset := range server.ack_slaves {
-		maximum_offset = max(maximum_offset, offset)
-		counter[offset] += 1
+		if offset >= server.master_offset {
+			count++
+		}
 	}
-	return counter[maximum_offset]
+	return count
 }
 
 func (server *Redis) write_slaves(cmd string, buf []byte) {
 	if len(server.slaves) == 0 {
 		return
 	}
-	if !isReplicationCmd(cmd) {
+	if !IsWriteCmd(cmd) {
 		return
 	}
+	server.master_offset += len(buf)
+	fmt.Println("master-offset:", server.master_offset)
 	log.Printf("Replicating to %d slaves: %s", len(server.slaves), cmd)
 	for _, conn := range server.slaves {
 		_, err := conn.Write(buf)
@@ -735,19 +738,12 @@ func (server *Redis) handlePSYNC(conn net.Conn, args []string) {
 func (server *Redis) handleWAIT(conn net.Conn, args []string) {
 	replicas, _ := strconv.Atoi(args[0])
 
-	request := []byte(encode_list([]string{"REPLCONF", "GETACK", "*"}))
-	for _, slave_conn := range server.slaves {
-		_, err := slave_conn.Write(request)
-		if err != nil {
-			log.Printf("Error writing to the connection: %v", err)
-		}
-	}
-
 	count := server.slave_sync_count()
 	if count >= replicas {
 		conn.Write([]byte(resp_int(count)))
 		return
 	}
+
 	ch := make(chan int)
 	server.replica_waiters[replicas] = ch
 
@@ -925,6 +921,17 @@ func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) 
 				server.Execute(conn, client, args)
 			}
 			offset = offset + curr_length
+
+			if !IsWriteCmd(cmd) {
+				continue
+			}
+
+			ack := encode_list([]string{"REPLCONF", "ACK", strconv.Itoa(offset)})
+			_, err = conn.Write([]byte(ack))
+			if err != nil {
+				log.Printf("Error sending ACK to master: %v", err)
+			}
+			fmt.Println("replication offset for slave:", offset)
 		}
 	}
 }
