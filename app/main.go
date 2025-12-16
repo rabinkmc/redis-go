@@ -53,6 +53,8 @@ type Redis struct {
 	ack_slaves      map[net.Conn]int
 	wait_offset     int
 	master_offset   int
+	rdb_dir         string
+	dbfilename      string
 }
 
 type Client struct {
@@ -845,11 +847,30 @@ func (server *Redis) Execute(conn net.Conn, client *Client, args []string) strin
 		return server.handleEXEC(conn, client)
 	case "INFO":
 		return server.handleINFO(args[1])
+	case "CONFIG":
+		return server.handleCONFIG(args[1:])
 	default:
 		return "-ERR \r\n"
 	}
 }
 
+func (server *Redis) handleCONFIG(args []string) string {
+	cmd := args[0]
+	key := args[1]
+	switch cmd {
+	case "GET":
+		if key == "dir" {
+			return encode_list([]string{"dir", server.rdb_dir})
+		}
+		if key == "dbfilename" {
+			return encode_list([]string{"dir", server.dbfilename})
+		}
+	default:
+		return NULL_ARRAY
+	}
+	return NULL_ARRAY
+
+}
 func (server *Redis) writeFile(conn net.Conn) {
 	emptyRDB := "524544495330303131fa0972656469732d76657205372e322e30" +
 		"fa0a72656469732d62697473c040fa056374696d65c26d08bc65" +
@@ -1024,6 +1045,8 @@ func main() {
 
 	port := flag.Int("port", 6379, "port to listen on")
 	replicaof := flag.String("replicaof", "", "host and port of master")
+	rdb_dir := flag.String("dir", "", "directory of rdb file")
+	dbfilename := flag.String("dbfilename", "", "file name of rdb")
 	flag.Parse()
 	address := fmt.Sprintf("0.0.0.0:%d", *port)
 	l, err := net.Listen("tcp", address)
@@ -1032,6 +1055,8 @@ func main() {
 		os.Exit(1)
 	}
 	server := NewRedis(*port, *replicaof)
+	server.rdb_dir = *rdb_dir
+	server.dbfilename = *dbfilename
 	log.Printf("Redis server running at: %s", address)
 	for {
 		conn, err := l.Accept()
