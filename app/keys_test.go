@@ -10,6 +10,6 @@ func TestRDB(t *testing.T) {
 	server.rdb_dir = "/home/rabin/projects/codecrafters/codecrafters-redis-go/"
 	server.dbfilename = "dump.rdb"
 
-	got := server.read_keys()
+	got := server.handleKEYS()
 	fmt.Printf("%#v", got)
 }

@@ -55,6 +55,10 @@ type Redis struct {
 	master_offset   int
 	rdb_dir         string
 	dbfilename      string
+	db_index		uint32
+	key_size uint32
+	exp_key_size uint32
+
 }
 
 type Client struct {
@@ -154,53 +158,6 @@ func send_psync(conn net.Conn, replication_id, offset string) {
 			request, err.Error(),
 		)
 	}
-}
-
-func NewRedis(port int, replicaof string) *Redis {
-	parts := strings.Split(replicaof, " ")
-	replication := make(map[string]string)
-	replication["master_replid"] = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
-	replication["master_repl_offset"] = "0"
-	replication["role"] = "master"
-	if len(parts) == 2 {
-		replication["role"] = "slave"
-	}
-
-	redis := &Redis{
-		id:             "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
-		replicaof:      replicaof,
-		port:           port,
-		dict:           make(map[string]Entry),
-		waiters:        make(map[string]chan string),
-		stream_waiters: make(map[string]chan string),
-		ack_slaves:     make(map[net.Conn]int),
-	}
-
-	redis.info = make(map[string]map[string]string)
-	redis.info["replication"] = replication
-	if replication["role"] == "slave" {
-		redis.master_addr = fmt.Sprintf("%s:%s", parts[0], parts[1])
-		// initial handshake
-		conn, err := net.Dial("tcp", redis.master_addr)
-		handshake_ch := make(chan string)
-		go redis.handleReplConnection(conn, handshake_ch) // replica reads from this connection
-		if err != nil {
-			log.Fatalf("Unable to connect to the master: %v", err.Error())
-		}
-		send_ping(conn)
-		msg := <-handshake_ch
-		log.Println("received:", msg)
-		request1 := []string{"REPLCONF", "listening-port", fmt.Sprintf("%d", port)}
-		send_replconf(conn, request1)
-		msg = <-handshake_ch
-		log.Println("received:", msg)
-		request2 := []string{"REPLCONF", "capa", "psync2"}
-		send_replconf(conn, request2)
-		msg = <-handshake_ch
-		log.Println("received:", msg)
-		send_psync(conn, "?", "-1")
-	}
-	return redis
 }
 
 func (server *Redis) handlePING() string {
@@ -1042,23 +999,25 @@ func (server *Redis) handleConnection(conn net.Conn) {
 }
 
 func main() {
-	log.SetOutput(os.Stdout)
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-
 	port := flag.Int("port", 6379, "port to listen on")
 	replicaof := flag.String("replicaof", "", "host and port of master")
 	rdb_dir := flag.String("dir", "", "directory of rdb file")
 	dbfilename := flag.String("dbfilename", "", "file name of rdb")
 	flag.Parse()
-	address := fmt.Sprintf("0.0.0.0:%d", *port)
-	l, err := net.Listen("tcp", address)
+	redis_config := RedisConfig{
+		port:       *port,
+		replicaof:  *replicaof,
+		rdb_dir:    *rdb_dir,
+		dbfilename: *dbfilename,
+	}
+	server := NewRedis(redis_config)
+
+	address := fmt.Sprintf("0.0.0.0:%d", redis_config.port)
+	l, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d"+, redis_config.port))
 	if err != nil {
 		log.Printf("Failed to bind to port %d\n", port)
 		os.Exit(1)
 	}
-	server := NewRedis(*port, *replicaof)
-	server.rdb_dir = *rdb_dir
-	server.dbfilename = *dbfilename
 	log.Printf("Redis server running at: %s", address)
 	for {
 		conn, err := l.Accept()

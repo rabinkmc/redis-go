@@ -51,11 +51,11 @@ func read_str(reader *bufio.Reader, buf_size uint32) (string, error) {
 	return string(key_buf), nil
 }
 
-func (server *Redis) handleKEYS() string {
+func (server *Redis) readRDB() {
 	filename := filepath.Join(server.rdb_dir, server.dbfilename)
 	file, err := os.Open(filename)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to open a file: %v", err)
 	}
 	defer file.Close()
 
@@ -68,7 +68,7 @@ func (server *Redis) handleKEYS() string {
 			break
 		}
 		if err != nil {
-			panic(err)
+			log.Fatalf("Error reading from a file: %v", err)
 		}
 		buffer = append(buffer, b)
 		if b == 0xFA {
@@ -78,21 +78,27 @@ func (server *Redis) handleKEYS() string {
 		}
 		if b == 0xFE {
 			// index of the database
-			index, _ := decode_length(reader)
-			fmt.Println("index:", index)
+			server.db_index, err = decode_length(reader)
 		}
 		if b == 0xFB {
-			key_size, _ = decode_length(reader)
-			ex_key_size, _ := decode_length(reader)
-			fmt.Println("key_size:", key_size)
-			fmt.Println("expiry_size:", ex_key_size)
+			server.key_size, err = decode_length(reader)
+			if err != nil {
+				log.Fatalf("Error decoding key size: %v", err)
+			}
+			server.exp_key_size, err = decode_length(reader)
+			if err != nil {
+				log.Fatalf("Error decoding expiry key size: %v", err)
+			}
 			break
 		}
 	}
-	res := []string{}
 	time_ms := uint64(0)
-	for {
-		value_type, _ := reader.ReadByte()
+	i := 0
+	for i < int(key_size) {
+		value_type, err := reader.ReadByte()
+		if err != nil {
+			log.Fatalf("Error reading value type: %v", err)
+		}
 		if value_type == 0xFE {
 			break
 		}
@@ -105,7 +111,10 @@ func (server *Redis) handleKEYS() string {
 			continue
 		} else if value_type == 0xFC {
 			buf := make([]byte, 8)
-			_, _ = io.ReadFull(reader, buf)
+			_, err = io.ReadFull(reader, buf)
+			if err != nil {
+				log.Fatalf("Error reading 8 bytes of unsigned long expiry time: %v", err)
+			}
 			time_ms = binary.LittleEndian.Uint64(buf)
 			fmt.Println("Am I ever here", time_ms)
 			continue
@@ -135,10 +144,17 @@ func (server *Redis) handleKEYS() string {
 			log.Fatalf("Error: %v", err)
 		}
 
-		res = append(res, string(key_buf))
-		if len(res) == int(key_size) {
-			break
-		}
+		key, value := string(key_buf), string(value_buf)
+		server.dict[key] = Entry{val: value}
+		time_ms = 0
+		i++
+	}
+}
+
+func (server *Redis) handleKEYS() string {
+	res := []string{}
+	for key := range server.dict {
+		res = append(res, key)
 	}
 	return encode_list(res)
 }
