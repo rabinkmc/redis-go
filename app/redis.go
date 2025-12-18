@@ -53,7 +53,7 @@ func NewRedis(redis_config RedisConfig) *Redis {
 		send_ping(conn)
 		msg := <-handshake_ch
 		log.Println("received:", msg)
-		request1 := []string{"REPLCONF", "listening-port", fmt.Sprintf("%d", port)}
+		request1 := []string{"REPLCONF", "listening-port", fmt.Sprintf("%d", redis.port)}
 		send_replconf(conn, request1)
 		msg = <-handshake_ch
 		log.Println("received:", msg)

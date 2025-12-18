@@ -55,10 +55,9 @@ type Redis struct {
 	master_offset   int
 	rdb_dir         string
 	dbfilename      string
-	db_index		uint32
-	key_size uint32
-	exp_key_size uint32
-
+	db_index        uint32
+	key_size        uint32
+	exp_key_size    uint32
 }
 
 type Client struct {
@@ -1013,7 +1012,7 @@ func main() {
 	server := NewRedis(redis_config)
 
 	address := fmt.Sprintf("0.0.0.0:%d", redis_config.port)
-	l, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d"+, redis_config.port))
+	l, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", redis_config.port))
 	if err != nil {
 		log.Printf("Failed to bind to port %d\n", port)
 		os.Exit(1)
