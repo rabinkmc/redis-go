@@ -849,6 +849,8 @@ func (server *Redis) Execute(conn net.Conn, client *Client, args []string) strin
 		return server.handleINFO(args[1])
 	case "CONFIG":
 		return server.handleCONFIG(args[1:])
+	case "KEYS":
+		return server.handleKEYS()
 	default:
 		return "-ERR \r\n"
 	}
