@@ -53,17 +53,25 @@ func read_str(reader *bufio.Reader, buf_size uint32) (string, error) {
 }
 
 func (server *Redis) readRDB() {
+	if server.rdb_read_status {
+		return
+	}
 	filename := filepath.Join(server.rdb_dir, server.dbfilename)
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Fatalf("Failed to open a file: %v", err)
+		if os.IsNotExist(err) {
+			return
+		}
+		log.Fatalf("Failed to read file: %v", err)
 	}
 	defer file.Close()
 
 	reader := bufio.NewReader(file)
 	// just skip upto FB
-	buf, err := reader.ReadBytes(0xFB)
-	fmt.Println(string(buf))
+	_, err = reader.ReadBytes(0xFB)
+	if err == io.EOF {
+		return
+	}
 	if err != nil {
 		log.Fatalf("Error skipping bytes %v", err)
 	}
@@ -140,9 +148,11 @@ func (server *Redis) readRDB() {
 		time_ms = 0
 		i++
 	}
+	server.rdb_read_status = true
 }
 
 func (server *Redis) handleKEYS() string {
+	server.readRDB()
 	res := []string{}
 	for key := range server.dict {
 		res = append(res, key)

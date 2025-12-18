@@ -58,6 +58,7 @@ type Redis struct {
 	db_index        uint32
 	key_size        uint32
 	exp_key_size    uint32
+	rdb_read_status bool
 }
 
 type Client struct {
@@ -187,6 +188,7 @@ func (server *Redis) handleSET(args []string) string {
 }
 
 func (server *Redis) handleGET(key string) string {
+	server.readRDB()
 	entry, ok := server.dict[key]
 	if !ok {
 		return "$-1\r\n"
