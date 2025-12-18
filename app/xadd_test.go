@@ -35,7 +35,8 @@ func TestXADD(t *testing.T) {
 		},
 	}
 
-	server := NewRedis(6389, "")
+	redis_config := RedisConfig{port: 6389}
+	server := NewRedis(redis_config)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := server.handleXADD(tt.in)
@@ -57,7 +58,8 @@ func TestXADDA(t *testing.T) {
 		},
 	}
 
-	server := NewRedis(6389, "")
+	redis_config := RedisConfig{port: 6389}
+	server := NewRedis(redis_config)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server.handleXADD(tt.in)
