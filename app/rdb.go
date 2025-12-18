@@ -84,7 +84,7 @@ func (server *Redis) readRDB() {
 		log.Fatalf("Error decoding expiry key size: %v", err)
 	}
 
-	time_ms := uint64(0)
+	millitime := uint64(0)
 	i := 0
 	for i < int(server.key_size) {
 		value_type, err := reader.ReadByte()
@@ -98,8 +98,8 @@ func (server *Redis) readRDB() {
 		if value_type == 0xFD {
 			buf := make([]byte, 4)
 			_, _ = io.ReadFull(reader, buf)
-			time_ms = uint64(binary.LittleEndian.Uint32(buf)) * 1000
-			fmt.Println("time sec->ms", time_ms)
+			millitime = uint64(binary.LittleEndian.Uint32(buf)) * 1000
+			fmt.Println("time sec->ms", millitime)
 			continue
 		} else if value_type == 0xFC {
 			buf := make([]byte, 8)
@@ -107,8 +107,8 @@ func (server *Redis) readRDB() {
 			if err != nil {
 				log.Fatalf("Error reading 8 bytes of unsigned long expiry time: %v", err)
 			}
-			time_ms = binary.LittleEndian.Uint64(buf)
-			fmt.Println("time ms ->", time_ms)
+			millitime = binary.LittleEndian.Uint64(buf)
+			fmt.Println("time ms ->", millitime)
 			continue
 		}
 		// read key value pair
@@ -138,14 +138,13 @@ func (server *Redis) readRDB() {
 
 		key, value := string(key_buf), string(value_buf)
 
-		ex_time := time.Now()
 		entry := Entry{val: value}
-		if time_ms != 0 {
-			ex_time = ex_time.Add(time.Duration(time_ms) * time.Millisecond)
-			entry.time = &ex_time
+		if millitime != 0 {
+			expiry_time := time.UnixMilli(int64(millitime))
+			entry.time = &expiry_time
 		}
 		server.dict[key] = entry
-		time_ms = 0
+		millitime = 0
 		i++
 	}
 	server.rdb_read_status = true
