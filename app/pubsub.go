@@ -38,8 +38,9 @@ func (server *Redis) handleSUBSCRIBE(client *Client, args []string) string {
 		log.Printf("New topic created: %s", topic_str)
 	}
 	topic.subscribers = append(topic.subscribers, client)
-	client.topics[topic_str] = topic
+	client.topics[topic_str], server.pubsub[topic_str] = topic, topic
 	client.subscribed = true
+	fmt.Printf("%#v", client.topics)
 	log.Printf("client connected to topic: %s", topic_str)
 
 	return encode_sublist(

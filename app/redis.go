@@ -32,6 +32,7 @@ func NewRedis(redis_config RedisConfig) *Redis {
 		waiters:        make(map[string]chan string),
 		stream_waiters: make(map[string]chan string),
 		ack_slaves:     make(map[net.Conn]int),
+		pubsub:         make(map[string]*Topic),
 	}
 
 	redis.info = make(map[string]map[string]string)
