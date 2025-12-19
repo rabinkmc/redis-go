@@ -952,17 +952,23 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		cmd := strings.ToUpper(args[0])
 		resp := ""
 		if client.subscribed {
-			allowed_cmds := []string{
-				"SUBSCRIBE", "PSUBSCRIBE",
-				"UNSUBSCRIBE", "PUNSUBSCRIBE",
-				"PING", "QUIT",
-			}
-			for i := 0; i < 6; i++ {
-				if cmd != allowed_cmds[i] {
-					resp_err := simple_err(fmt.Sprintf("Can't execute '%s'", cmd))
-					conn.Write([]byte(resp_err))
-					continue
+			not_allowed := func(cmd string) bool {
+				allowed_cmds := []string{
+					"SUBSCRIBE", "PSUBSCRIBE",
+					"UNSUBSCRIBE", "PUNSUBSCRIBE",
+					"PING", "QUIT",
 				}
+				for _, allowed_cmd := range allowed_cmds {
+					if cmd != allowed_cmd {
+						return true
+					}
+				}
+				return false
+			}
+			if not_allowed(cmd) {
+				resp_err := simple_err(fmt.Sprintf("Can't execute '%s'", cmd))
+				conn.Write([]byte(resp_err))
+				continue
 			}
 		}
 		if cmd == "WAIT" {
