@@ -27,7 +27,10 @@ func (server *Redis) handleSUBSCRIBE(client *Client, args []string) string {
 	if ok {
 		// already subscribed
 		client.subscribed = true
-		return resp_int(len(client.topics))
+		return encode_sublist(
+			[]string{"subscribe", topic_str},
+			len(client.topics),
+		)
 	}
 	topic, ok = server.pubsub[topic_str]
 	if !ok {
@@ -43,5 +46,4 @@ func (server *Redis) handleSUBSCRIBE(client *Client, args []string) string {
 		[]string{"subscribe", topic_str},
 		len(client.topics),
 	)
-
 }
