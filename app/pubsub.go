@@ -38,7 +38,7 @@ func (server *Redis) handleSUBSCRIBE(client *Client, args []string) string {
 	log.Printf("client connected to topic: %s", topic_str)
 
 	return encode_sublist(
-		[]string{"SUBSCRIBE", topic_str},
+		[]string{"subscribe", topic_str},
 		len(client.topics),
 	)
 
