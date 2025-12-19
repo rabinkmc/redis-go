@@ -953,7 +953,7 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		resp := ""
 		if client.subscribed {
 			if cmd == "PING" {
-				conn.Write([]byte(encode_list([]string{"PONG", ""})))
+				conn.Write([]byte(encode_list([]string{"pong", ""})))
 				continue
 			}
 			is_allowed := func(cmd string) bool {
