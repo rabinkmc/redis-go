@@ -967,6 +967,7 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			}
 			if not_allowed(cmd) {
 				resp_err := simple_err(fmt.Sprintf("Can't execute '%s'", cmd))
+				fmt.Println("why err", cmd)
 				conn.Write([]byte(resp_err))
 				continue
 			}
