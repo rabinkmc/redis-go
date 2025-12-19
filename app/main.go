@@ -952,6 +952,10 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		cmd := strings.ToUpper(args[0])
 		resp := ""
 		if client.subscribed {
+			if cmd == "PING" {
+				conn.Write([]byte(encode_list([]string{"PONG", ""})))
+				continue
+			}
 			is_allowed := func(cmd string) bool {
 				allowed_cmds := []string{
 					"SUBSCRIBE", "PSUBSCRIBE",
