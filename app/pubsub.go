@@ -47,3 +47,12 @@ func (server *Redis) handleSUBSCRIBE(client *Client, args []string) string {
 		len(client.topics),
 	)
 }
+
+func (server *Redis) handlePUBLISH(args []string) string {
+	topic_str := args[0]
+	topic, ok := server.pubsub[topic_str]
+	if !ok {
+		return resp_int(0)
+	}
+	return resp_int(len(topic.subscribers))
+}

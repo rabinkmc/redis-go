@@ -814,6 +814,8 @@ func (server *Redis) Execute(conn net.Conn, client *Client, args []string) strin
 		return server.handleKEYS()
 	case "SUBSCRIBE":
 		return server.handleSUBSCRIBE(client, args[1:])
+	case "PUBLISH":
+		return server.handlePUBLISH(args[1:])
 	default:
 		return "-ERR \r\n"
 	}
