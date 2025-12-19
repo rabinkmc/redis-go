@@ -812,10 +812,6 @@ func (server *Redis) Execute(conn net.Conn, client *Client, args []string) strin
 		return server.handleCONFIG(args[1:])
 	case "KEYS":
 		return server.handleKEYS()
-	case "SUBSCRIBE":
-		return server.handleSUBSCRIBE(client, args[1:])
-	case "PUBLISH":
-		return server.handlePUBLISH(args[1:])
 	default:
 		return "-ERR \r\n"
 	}
@@ -953,29 +949,10 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		}
 		cmd := strings.ToUpper(args[0])
 		resp := ""
-		if client.subscribed {
-			if cmd == "PING" {
-				conn.Write([]byte(encode_list([]string{"pong", ""})))
-				continue
-			}
-			is_allowed := func(cmd string) bool {
-				allowed_cmds := []string{
-					"SUBSCRIBE", "PSUBSCRIBE",
-					"UNSUBSCRIBE", "PUNSUBSCRIBE",
-					"PING", "QUIT",
-				}
-				for _, allowed_cmd := range allowed_cmds {
-					if cmd == allowed_cmd {
-						return true
-					}
-				}
-				return false
-			}
-			if !is_allowed(cmd) {
-				resp_err := simple_err(fmt.Sprintf("Can't execute '%s'", cmd))
-				conn.Write([]byte(resp_err))
-				continue
-			}
+
+		if client.subscribed || in_subscription_mode(client, cmd) {
+			server.handleSubscription(client, args)
+			continue
 		}
 		if cmd == "WAIT" {
 			server.handleWAIT(conn, args[1:])
