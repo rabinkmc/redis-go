@@ -1,10 +1,24 @@
 package main
 
-import "log"
+import (
+	"fmt"
+	"log"
+)
 
 type Topic struct {
 	name        string
 	subscribers []*Client
+}
+
+func encode_sublist(strs []string, topic_size int) string {
+	if len(strs) == 0 {
+		return "*0\r\n"
+	}
+	result := fmt.Sprintf("*%d\r\n", len(strs)+1)
+	for _, str := range strs {
+		result += fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
+	}
+	return result + resp_int(topic_size)
 }
 
 func (server *Redis) handleSUBSCRIBE(client *Client, args []string) string {
@@ -23,8 +37,9 @@ func (server *Redis) handleSUBSCRIBE(client *Client, args []string) string {
 	client.topics[topic_str] = topic
 	log.Printf("client connected to topic: %s", topic_str)
 
-	return encode_list(
+	return encode_sublist(
 		[]string{"SUBSCRIBE", topic_str},
-	) + resp_int(len(client.topics))
+		len(client.topics),
+	)
 
 }
