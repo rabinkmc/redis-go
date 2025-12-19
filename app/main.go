@@ -63,10 +63,11 @@ type Redis struct {
 }
 
 type Client struct {
-	conn     net.Conn
-	topics   map[string]*Topic
-	commands [][]string
-	queue    bool
+	conn       net.Conn
+	topics     map[string]*Topic
+	commands   [][]string
+	queue      bool
+	subscribed bool
 }
 
 func IsWriteCmd(cmd string) bool {
@@ -950,6 +951,20 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		}
 		cmd := strings.ToUpper(args[0])
 		resp := ""
+		if client.subscribed {
+			allowed_cmds := []string{
+				"SUBSCRIBE", "PSUBSCRIBE",
+				"UNSUBSCRIBE", "PUNSUBSCRIBE",
+				"PING", "QUIT",
+			}
+			for i := 0; i < 6; i++ {
+				if cmd != allowed_cmds[i] {
+					resp_err := simple_err(fmt.Sprintf("Can't execute '%s'", cmd))
+					conn.Write([]byte(resp_err))
+					continue
+				}
+			}
+		}
 		if cmd == "WAIT" {
 			server.handleWAIT(conn, args[1:])
 			continue

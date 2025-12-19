@@ -26,6 +26,7 @@ func (server *Redis) handleSUBSCRIBE(client *Client, args []string) string {
 	topic, ok := client.topics[topic_str]
 	if ok {
 		// already subscribed
+		client.subscribed = true
 		return resp_int(len(client.topics))
 	}
 	topic, ok = server.pubsub[topic_str]
@@ -35,6 +36,7 @@ func (server *Redis) handleSUBSCRIBE(client *Client, args []string) string {
 	}
 	topic.subscribers = append(topic.subscribers, client)
 	client.topics[topic_str] = topic
+	client.subscribed = true
 	log.Printf("client connected to topic: %s", topic_str)
 
 	return encode_sublist(
