@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"io"
+	"log"
 	"strconv"
 	"strings"
 )
@@ -44,4 +47,32 @@ func (server *Redis) removeWaiter(target *WaitRequest) {
 		}
 	}
 	server.replica_waiters = newWaiters
+}
+
+func parse_resp_arr(reader *bufio.Reader, arr_size int) []string {
+	args := []string{}
+	for i := 0; i < arr_size; i++ {
+		size_str, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatalf("Error reading from connection : %v", err.Error())
+		}
+		size_str = strings.TrimSuffix(size_str, "\r\n")
+		size, err := strconv.Atoi(size_str[1:])
+		if err != nil {
+			log.Fatalf("Error parsing integer: %v", err.Error())
+		}
+		buf := make([]byte, size)
+		_, err = io.ReadFull(reader, buf)
+		if err != nil {
+			log.Fatalf("Error reading buffer of size: %d", size)
+		}
+		args = append(args, string(buf))
+		// read trailing CRLF
+		_, err = reader.ReadString('\n')
+		if err != nil {
+			log.Fatalf("Error reading trailing CRLF: %v", err)
+		}
+	}
+	log.Printf("resp_arr: %v\n", args)
+	return args
 }

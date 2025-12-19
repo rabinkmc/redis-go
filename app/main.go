@@ -59,10 +59,12 @@ type Redis struct {
 	key_size        uint32
 	exp_key_size    uint32
 	rdb_read_status bool
+	pubsub          map[string]*Topic
 }
 
 type Client struct {
-	address  string
+	conn     net.Conn
+	topics   map[string]*Topic
 	commands [][]string
 	queue    bool
 }
@@ -809,6 +811,8 @@ func (server *Redis) Execute(conn net.Conn, client *Client, args []string) strin
 		return server.handleCONFIG(args[1:])
 	case "KEYS":
 		return server.handleKEYS()
+	case "SUBSCRIBE":
+		return server.handleSUBSCRIBE(client, args[1:])
 	default:
 		return "-ERR \r\n"
 	}
@@ -849,34 +853,6 @@ func (server *Redis) writeFile(conn net.Conn) {
 		log.Fatalf("Error writing to connection: %v", err.Error())
 		return
 	}
-}
-
-func parse_resp_arr(reader *bufio.Reader, arr_size int) []string {
-	args := []string{}
-	for i := 0; i < arr_size; i++ {
-		size_str, err := reader.ReadString('\n')
-		if err != nil {
-			log.Fatalf("Error reading from connection : %v", err.Error())
-		}
-		size_str = strings.TrimSuffix(size_str, "\r\n")
-		size, err := strconv.Atoi(size_str[1:])
-		if err != nil {
-			log.Fatalf("Error parsing integer: %v", err.Error())
-		}
-		buf := make([]byte, size)
-		_, err = io.ReadFull(reader, buf)
-		if err != nil {
-			log.Fatalf("Error reading buffer of size: %d", size)
-		}
-		args = append(args, string(buf))
-		// read trailing CRLF
-		_, err = reader.ReadString('\n')
-		if err != nil {
-			log.Fatalf("Error reading trailing CRLF: %v", err)
-		}
-	}
-	log.Printf("resp_arr: %v\n", args)
-	return args
 }
 
 func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) {
@@ -950,7 +926,7 @@ func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) 
 
 func (server *Redis) handleConnection(conn net.Conn) {
 	log.Printf("Redis client %s -> %s\n", conn.RemoteAddr(), conn.LocalAddr())
-	client := &Client{}
+	client := &Client{conn: conn, topics: make(map[string]*Topic)}
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	for {
