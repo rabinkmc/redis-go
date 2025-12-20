@@ -126,8 +126,37 @@ func (server *Redis) handleZSCORE(client *Client, args []string) {
 
 }
 
+func (server *Redis) handleZREM(client *Client, args []string) {
+	key := args[0]
+	if len(args) < 2 {
+		client.conn.Write([]byte(simple_err("member not specified")))
+		return
+	}
+	member := args[1]
+	entry, _ := server.dict[key]
+	if len(entry.zset) == 0 {
+		client.conn.Write([]byte(resp_int(0)))
+		return
+	}
+	idx := entry.find_znode(member)
+	if idx == -1 {
+		client.conn.Write([]byte(resp_int(0)))
+		return
+	}
+	items := entry.zset[:0]
+	for i := 0; i < len(entry.zset); i++ {
+		if i == idx {
+			continue
+		}
+		items = append(items, entry.zset[i])
+	}
+	entry.zset = items
+	server.dict[key] = entry
+	client.conn.Write([]byte(resp_int(1)))
+}
+
 func is_set_cmd(cmd string) bool {
-	commands := []string{"ZADD", "ZRANK", "ZRANGE", "ZCARD", "ZSCORE"}
+	commands := []string{"ZADD", "ZRANK", "ZRANGE", "ZCARD", "ZSCORE", "ZREM"}
 	for _, command := range commands {
 		if cmd == command {
 			return true
@@ -149,5 +178,7 @@ func (server *Redis) handleZset(client *Client, args []string) {
 		server.handleZCARD(client, args[1:])
 	case "ZSCORE":
 		server.handleZSCORE(client, args[1:])
+	case "ZREM":
+		server.handleZREM(client, args[1:])
 	}
 }

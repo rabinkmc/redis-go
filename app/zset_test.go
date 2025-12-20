@@ -7,7 +7,6 @@ import (
 
 func TestZset(t *testing.T) {
 	entry := Entry{}
-	entry.zset = &Zset{pos: make(map[string]int)}
 	entry.insert_znode(Znode{"mi", 1})
 	entry.insert_znode(Znode{"foo", 5})
 	fmt.Printf("%#v", entry.zset)
