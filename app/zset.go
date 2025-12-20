@@ -70,6 +70,7 @@ func (server *Redis) handleZRANGE(client *Client, args []string) {
 	entry, _ := server.dict[key]
 	if len(entry.zset) == 0 {
 		client.conn.Write([]byte(EMPTY_ARRAY))
+		return
 	}
 	start, _ := strconv.ParseInt(args[1], 10, 64)
 	end, _ := strconv.ParseInt(args[2], 10, 64)
@@ -77,6 +78,7 @@ func (server *Redis) handleZRANGE(client *Client, args []string) {
 	end = min(n, end)
 	if start > end || start > n {
 		client.conn.Write([]byte(EMPTY_ARRAY))
+		return
 	}
 	resp := []string{}
 	for i := start; i <= end; i++ {
