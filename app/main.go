@@ -890,6 +890,10 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			server.handleSubscription(client, args)
 			continue
 		}
+		if is_geo_cmd(cmd) {
+			server.handleGeo(client, args)
+			continue
+		}
 		if is_set_cmd(cmd) {
 			server.handleZset(client, args)
 			continue
