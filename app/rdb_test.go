@@ -13,5 +13,5 @@ func TestRDB(t *testing.T) {
 
 	server.readRDB()
 	got := server.handleKEYS()
-	fmt.Printf("%#v", got)
+	fmt.Printf("%#v\n", got)
 }
