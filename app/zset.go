@@ -104,8 +104,14 @@ func (server *Redis) handleZRANGE(client *Client, args []string) {
 	client.conn.Write([]byte(encode_list(resp)))
 }
 
+func (server *Redis) handleZCARD(client *Client, args []string) {
+	key := args[0]
+	entry, _ := server.dict[key]
+	client.conn.Write([]byte(resp_int(len(entry.zset))))
+}
+
 func is_set_cmd(cmd string) bool {
-	commands := []string{"ZADD", "ZRANK", "ZRANGE"}
+	commands := []string{"ZADD", "ZRANK", "ZRANGE", "ZCARD"}
 	for _, command := range commands {
 		if cmd == command {
 			return true
@@ -123,5 +129,7 @@ func (server *Redis) handleZset(client *Client, args []string) {
 		server.handleZRANK(client, args[1:])
 	case "ZRANGE":
 		server.handleZRANGE(client, args[1:])
+	case "ZCARD":
+		server.handleZCARD(client, args[1:])
 	}
 }
