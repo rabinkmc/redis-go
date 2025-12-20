@@ -30,22 +30,13 @@ type Znode struct {
 
 type Zset []Znode
 
-type Location struct {
-	name      string
-	latitude  float64
-	longitude float64
-}
-
-type Locations []Location
-
 type Entry struct {
-	val       string
-	list      []string
-	streams   []Stream
-	streamMS  map[int64]int
-	time      *time.Time
-	zset      Zset
-	locations Locations
+	val      string
+	list     []string
+	streams  []Stream
+	streamMS map[int64]int
+	time     *time.Time
+	zset     Zset
 }
 
 type WaitRequest struct {

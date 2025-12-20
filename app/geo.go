@@ -42,16 +42,15 @@ func (server *Redis) handleGEOADD(client *Client, args []string) {
 	}
 	name := args[3]
 	entry, _ := server.dict[key]
-	entry.locations = append(
-		entry.locations,
-		Location{
-			longitude: longitude,
-			latitude:  latitude,
-			name:      name,
+	entry.zset = append(
+		entry.zset,
+		Znode{
+			score:  0,
+			member: name,
 		},
 	)
 	server.dict[key] = entry
-	client.conn.Write([]byte(resp_int(len(entry.locations))))
+	client.conn.Write([]byte(resp_int(len(entry.zset))))
 }
 
 func is_geo_cmd(cmd string) bool {
