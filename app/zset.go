@@ -23,7 +23,7 @@ func (entry *Entry) insert_znode(item Znode) {
 		if items[i].score == items[j].score {
 			return items[i].member < items[j].member
 		}
-		return items[i].score < items[i].score
+		return items[i].score < items[j].score
 	})
 }
 
