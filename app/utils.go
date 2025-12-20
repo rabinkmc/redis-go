@@ -76,3 +76,16 @@ func parse_resp_arr(reader *bufio.Reader, arr_size int) []string {
 	log.Printf("resp_arr: %v\n", args)
 	return args
 }
+
+func IsWriteCmd(cmd string) bool {
+	replication_cmds := []string{
+		"SET", "RPUSH", "LPUSH", "LPOP", "BLPOP",
+		"XADD", "INCR", "MULTI", "DISCARD", "EXEC",
+	}
+	for i := 0; i < len(replication_cmds); i++ {
+		if cmd == replication_cmds[i] {
+			return true
+		}
+	}
+	return false
+}

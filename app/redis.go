@@ -23,12 +23,18 @@ type Stream struct {
 	items []string // key, val pair
 }
 
+type Znode struct {
+	member string
+	score  float64
+}
+
 type Entry struct {
 	val      string
 	list     []string
 	streams  []Stream
 	streamMS map[int64]int
 	time     *time.Time
+	zset     []Znode
 }
 
 type WaitRequest struct {

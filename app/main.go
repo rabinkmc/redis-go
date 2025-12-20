@@ -16,19 +16,6 @@ import (
 
 const NULL_ARRAY string = "*-1\r\n"
 
-func IsWriteCmd(cmd string) bool {
-	replication_cmds := []string{
-		"SET", "RPUSH", "LPUSH", "LPOP", "BLPOP",
-		"XADD", "INCR", "MULTI", "DISCARD", "EXEC",
-	}
-	for i := 0; i < len(replication_cmds); i++ {
-		if cmd == replication_cmds[i] {
-			return true
-		}
-	}
-	return false
-}
-
 func (server *Redis) removeSlave(conn net.Conn) {
 	// remove from slaves list
 	newSlaves := server.slaves[:0]
@@ -898,6 +885,10 @@ func (server *Redis) handleConnection(conn net.Conn) {
 
 		if client.subscribed || in_subscription_mode(client, cmd) {
 			server.handleSubscription(client, args)
+			continue
+		}
+		if is_set_cmd(cmd) {
+			server.handleZset(client, args)
 			continue
 		}
 		if cmd == "WAIT" {
