@@ -31,6 +31,17 @@ func (entry *Entry) insert_znode(item Znode) {
 	entry.sort_zset()
 }
 
+func (entry *Entry) add_znode(item Znode) int {
+	if idx := entry.find_znode(item.member); idx != -1 {
+		entry.zset[idx].score = item.score
+		entry.sort_zset()
+		return 0
+	} else {
+		entry.insert_znode(item)
+		return 1
+	}
+}
+
 func (server *Redis) handleZADD(client *Client, args []string) {
 	key := args[0]
 	score, err := strconv.ParseFloat(args[1], 64)
@@ -42,16 +53,10 @@ func (server *Redis) handleZADD(client *Client, args []string) {
 	}
 	member := args[2]
 	entry, _ := server.dict[key]
-	if idx := entry.find_znode(member); idx != -1 {
-		entry.zset[idx].score = score
-		entry.sort_zset()
-		server.dict[key] = entry
-		client.conn.Write([]byte(resp_int(0)))
-	} else {
-		entry.insert_znode(Znode{member: member, score: score})
-		server.dict[key] = entry
-		client.conn.Write([]byte(resp_int(1)))
-	}
+	znode := Znode{member: member, score: score}
+	rv := entry.add_znode(znode)
+	server.dict[key] = entry
+	client.conn.Write([]byte(resp_int(rv)))
 }
 
 func (server *Redis) handleZRANK(client *Client, args []string) {
