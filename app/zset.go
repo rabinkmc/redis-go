@@ -16,9 +16,7 @@ func (entry *Entry) find_znode(member string) int {
 	}
 	return -1
 }
-
-func (entry *Entry) insert_znode(item Znode) {
-	entry.zset = append(entry.zset, item)
+func (entry *Entry) sort_zset() {
 	sort.Slice(entry.zset, func(i, j int) bool {
 		items := entry.zset
 		if items[i].score == items[j].score {
@@ -26,6 +24,11 @@ func (entry *Entry) insert_znode(item Znode) {
 		}
 		return items[i].score < items[j].score
 	})
+}
+
+func (entry *Entry) insert_znode(item Znode) {
+	entry.zset = append(entry.zset, item)
+	entry.sort_zset()
 }
 
 func (server *Redis) handleZADD(client *Client, args []string) {
@@ -41,6 +44,7 @@ func (server *Redis) handleZADD(client *Client, args []string) {
 	entry, _ := server.dict[key]
 	if idx := entry.find_znode(member); idx != -1 {
 		entry.zset[idx].score = score
+		entry.sort_zset()
 		server.dict[key] = entry
 		client.conn.Write([]byte(resp_int(0)))
 	} else {
@@ -74,9 +78,22 @@ func (server *Redis) handleZRANGE(client *Client, args []string) {
 	}
 	start, _ := strconv.ParseInt(args[1], 10, 64)
 	end, _ := strconv.ParseInt(args[2], 10, 64)
-	n := int64(len(entry.zset) - 1)
-	end = min(n, end)
-	if start > end || start > n {
+	n := int64(len(entry.zset))
+	if start < 0 {
+		if -start >= n {
+			start = 0
+		} else {
+			start = n + start
+		}
+	}
+	if end < 0 {
+		if -end >= n {
+			end = 0
+		}
+		end = n + end
+	}
+	end = min(n-1, end)
+	if start > end || start >= n {
 		client.conn.Write([]byte(EMPTY_ARRAY))
 		return
 	}
