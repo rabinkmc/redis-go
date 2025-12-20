@@ -6,9 +6,16 @@ import (
 	"strings"
 )
 
+func valid_longitude(x float64) bool {
+	return x >= -180 && x <= 180
+}
+func valid_latitude(x float64) bool {
+	return x >= -85.05112878 && x <= 85.05112878
+}
+
 func (server *Redis) handleGEOADD(client *Client, args []string) {
 	key := args[0]
-	latitude, err := strconv.ParseFloat(args[1], 64)
+	longitude, err := strconv.ParseFloat(args[1], 64)
 	if err != nil {
 		resp := simple_err(
 			fmt.Sprintf("failed to parse '%s' to float", args[1]),
@@ -17,12 +24,19 @@ func (server *Redis) handleGEOADD(client *Client, args []string) {
 		client.conn.Write([]byte(resp))
 		return
 	}
-	longitude, err := strconv.ParseFloat(args[2], 64)
+	latitude, err := strconv.ParseFloat(args[2], 64)
 	if err != nil {
 		resp := simple_err(
 			fmt.Sprintf("failed to parse '%s' to float", args[2]),
 		)
 
+		client.conn.Write([]byte(resp))
+		return
+	}
+	if !valid_latitude(latitude) || !valid_longitude(longitude) {
+		resp := simple_err(
+			fmt.Sprintf("invalid latitude, longitude pair %s,%s", args[1], args[2]),
+		)
 		client.conn.Write([]byte(resp))
 		return
 	}
