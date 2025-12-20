@@ -15,6 +15,9 @@ import (
 )
 
 const NULL_ARRAY string = "*-1\r\n"
+const EMPTY_ARRAY string = "*0\r\n"
+
+const NULL_BULKSTRING string = "$-1\r\n"
 
 func (server *Redis) removeSlave(conn net.Conn) {
 	// remove from slaves list
