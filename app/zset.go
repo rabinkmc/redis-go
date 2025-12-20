@@ -110,8 +110,24 @@ func (server *Redis) handleZCARD(client *Client, args []string) {
 	client.conn.Write([]byte(resp_int(len(entry.zset))))
 }
 
+func (server *Redis) handleZSCORE(client *Client, args []string) {
+	key := args[0]
+	entry, _ := server.dict[key]
+	if len(entry.zset) == 0 {
+		client.conn.Write([]byte(NULL_BULKSTRING))
+		return
+	}
+	if idx := entry.find_znode(args[1]); idx != -1 {
+		s := strconv.FormatFloat(entry.zset[idx].score, 'f', -1, 64)
+		client.conn.Write([]byte(resp_bulk_string(s)))
+	} else {
+		client.conn.Write([]byte(NULL_BULKSTRING))
+	}
+
+}
+
 func is_set_cmd(cmd string) bool {
-	commands := []string{"ZADD", "ZRANK", "ZRANGE", "ZCARD"}
+	commands := []string{"ZADD", "ZRANK", "ZRANGE", "ZCARD", "ZSCORE"}
 	for _, command := range commands {
 		if cmd == command {
 			return true
@@ -131,5 +147,7 @@ func (server *Redis) handleZset(client *Client, args []string) {
 		server.handleZRANGE(client, args[1:])
 	case "ZCARD":
 		server.handleZCARD(client, args[1:])
+	case "ZSCORE":
+		server.handleZSCORE(client, args[1:])
 	}
 }
