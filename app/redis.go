@@ -28,10 +28,7 @@ type Znode struct {
 	score  float64
 }
 
-type Zset struct {
-	pos   map[string]int
-	items []Znode
-}
+type Zset []Znode
 
 type Entry struct {
 	val      string
@@ -39,7 +36,7 @@ type Entry struct {
 	streams  []Stream
 	streamMS map[int64]int
 	time     *time.Time
-	zset     *Zset
+	zset     Zset
 }
 
 type WaitRequest struct {

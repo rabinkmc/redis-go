@@ -1,35 +1,30 @@
 package main
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 )
 
-func (entry *Entry) bsearch_znode(score float64) int {
-	items := entry.zset.items
-	left := 0
-	right := len(items) - 1
-	idx := -1
-	for left <= right {
-		m := left + (right-left)/2
-		if items[m].score <= score {
-			idx = m
-			left = m + 1
-		} else {
-			right = m - 1
+func (entry *Entry) find_znode(member string) int {
+	items := entry.zset
+	for idx, item := range items {
+		if item.member == member {
+			return idx
 		}
 	}
-	return idx
+	return -1
 }
 
 func (entry *Entry) insert_znode(item Znode) {
-	items := entry.zset.items
-	idx := entry.bsearch_znode(item.score) + 1
-	items = append(items, Znode{})
-	copy(items[idx+1:], items[idx:])
-	items[idx] = item
-	entry.zset.pos[item.member] = idx
-	entry.zset.items = items
+	entry.zset = append(entry.zset, item)
+	sort.Slice(entry.zset, func(i, j int) bool {
+		items := entry.zset
+		if items[i].score == items[j].score {
+			return items[i].member < items[j].member
+		}
+		return items[i].score < items[i].score
+	})
 }
 
 func (server *Redis) handleZADD(client *Client, args []string) {
@@ -37,11 +32,8 @@ func (server *Redis) handleZADD(client *Client, args []string) {
 	score, _ := strconv.ParseFloat(args[1], 64)
 	member := args[2]
 	entry, _ := server.dict[key]
-	if entry.zset == nil {
-		entry.zset = &Zset{pos: make(map[string]int)}
-	}
-	if idx, exists := entry.zset.pos[member]; exists {
-		entry.zset.items[idx].score = score
+	if idx := entry.find_znode(member); idx != -1 {
+		entry.zset[idx].score = score
 		server.dict[key] = entry
 		client.conn.Write([]byte(resp_int(0)))
 	} else {
@@ -51,8 +43,24 @@ func (server *Redis) handleZADD(client *Client, args []string) {
 	}
 }
 
+func (server *Redis) handleZRANK(client *Client, args []string) {
+	key := args[0]
+	member := args[1]
+	entry, _ := server.dict[key]
+	NULL_BULKSTRING := "$-1\r\n"
+	if len(entry.zset) == 0 {
+		client.conn.Write([]byte(NULL_BULKSTRING))
+		return
+	}
+	if idx := entry.find_znode(member); idx == -1 {
+		client.conn.Write([]byte(NULL_BULKSTRING))
+	} else {
+		client.conn.Write([]byte(resp_int(idx)))
+	}
+}
+
 func is_set_cmd(cmd string) bool {
-	commands := []string{"ZADD"}
+	commands := []string{"ZADD", "ZRANK"}
 	for _, command := range commands {
 		if cmd == command {
 			return true
@@ -66,5 +74,7 @@ func (server *Redis) handleZset(client *Client, args []string) {
 	switch cmd {
 	case "ZADD":
 		server.handleZADD(client, args[1:])
+	case "ZRANK":
+		server.handleZRANK(client, args[1:])
 	}
 }
