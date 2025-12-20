@@ -126,7 +126,6 @@ func (server *Redis) handlePubsub(topic *Topic) {
 			)
 			client.conn.Write([]byte(response))
 		}
-
 	}
 
 }

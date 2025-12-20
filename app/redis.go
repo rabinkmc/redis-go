@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
+	"time"
 )
 
 type RedisConfig struct {
@@ -12,6 +14,59 @@ type RedisConfig struct {
 	replicaof  string
 	rdb_dir    string
 	dbfilename string
+}
+
+type Stream struct {
+	id    string
+	time  int64
+	seq   int64
+	items []string // key, val pair
+}
+
+type Entry struct {
+	val      string
+	list     []string
+	streams  []Stream
+	streamMS map[int64]int
+	time     *time.Time
+}
+
+type WaitRequest struct {
+	required int
+	offset   int
+	ch       chan struct{}
+}
+
+type Redis struct {
+	id              string
+	port            int
+	dict            map[string]Entry
+	mu              sync.Mutex
+	waiters         map[string]chan string
+	stream_waiters  map[string]chan string
+	info            map[string]map[string]string
+	replicaof       string
+	master_addr     string
+	slaves          []net.Conn
+	replica_waiters []*WaitRequest
+	ack_slaves      map[net.Conn]int
+	wait_offset     int
+	master_offset   int
+	rdb_dir         string
+	dbfilename      string
+	db_index        uint32
+	key_size        uint32
+	exp_key_size    uint32
+	rdb_read_status bool
+	pubsub          map[string]*Topic
+}
+
+type Client struct {
+	conn       net.Conn
+	topics     map[string]*Topic
+	commands   [][]string
+	queue      bool
+	subscribed bool
 }
 
 func NewRedis(redis_config RedisConfig) *Redis {
