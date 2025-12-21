@@ -68,13 +68,13 @@ func (server *Redis) handleAUTH(client *Client, args []string) {
 	user, _ := server.users[username]
 	if user == nil {
 		resp_err := "WRONGPASS invalid username-password pair or user is disabled"
-		client.conn.Write([]byte(simple_err(resp_err)))
+		client.conn.Write([]byte(resp_err))
 		return
 	}
 	hash := get_hash(password)
 	if _, exists := user.hash[hash]; !exists {
 		resp_err := "WRONGPASS invalid username-password pair or user is disabled"
-		client.conn.Write([]byte(simple_err(resp_err)))
+		client.conn.Write([]byte(resp_err))
 	} else {
 		client.conn.Write([]byte("+OK\r\n"))
 	}
