@@ -30,6 +30,11 @@ type Znode struct {
 
 type Zset []Znode
 
+type User struct {
+	username string
+	hash     string
+}
+
 type Entry struct {
 	val      string
 	list     []string
@@ -67,6 +72,7 @@ type Redis struct {
 	exp_key_size    uint32
 	rdb_read_status bool
 	pubsub          map[string]*Topic
+	users           map[string]*User
 }
 
 type Client struct {
@@ -96,8 +102,10 @@ func NewRedis(redis_config RedisConfig) *Redis {
 		stream_waiters: make(map[string]chan string),
 		ack_slaves:     make(map[net.Conn]int),
 		pubsub:         make(map[string]*Topic),
+		users:          make(map[string]*User),
 	}
 
+	redis.users["default"] = &User{username: "default"}
 	redis.info = make(map[string]map[string]string)
 	redis.rdb_dir = redis_config.rdb_dir
 	redis.dbfilename = redis_config.dbfilename
