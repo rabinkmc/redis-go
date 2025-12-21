@@ -56,13 +56,10 @@ func (server *Redis) write_slaves(cmd string, buf []byte) {
 		return
 	}
 	server.master_offset += len(buf)
-	fmt.Println("master-offset:", server.master_offset)
-	log.Printf("Replicating to %d slaves: %s", len(server.slaves), cmd)
 	for _, conn := range server.slaves {
 		_, err := conn.Write(buf)
-		fmt.Println(err)
 		if err != nil {
-			log.Printf("Error writing to the %v: %v", conn, err.Error())
+			log.Printf("Error writing to the %v: %v\n", conn, err.Error())
 			server.removeSlave(conn)
 			conn.Close()
 		}
@@ -620,7 +617,6 @@ func (server *Redis) handleREPLCONF(conn net.Conn, args []string) {
 		}
 		// otherwise add
 		server.slaves = append(server.slaves, conn)
-		log.Println("Slave added:", conn)
 		conn.Write([]byte("+OK\r\n"))
 		return
 	}
@@ -666,7 +662,6 @@ func (server *Redis) handleWAIT(conn net.Conn, args []string) {
 	wait_offset := server.master_offset
 	count := server.slave_sync_count(wait_offset)
 	if count >= replicas || wait_offset == 0 {
-		log.Println("final response", count, replicas)
 		conn.Write([]byte(resp_int(count)))
 		return
 	}
@@ -847,7 +842,6 @@ func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) 
 			curr_length := len(encode_list(args))
 			if cmd == "REPLCONF" && strings.ToUpper(args[1]) == "GETACK" {
 				resp := encode_list([]string{"REPLCONF", "ACK", strconv.Itoa(offset)})
-				fmt.Println("replication offset", offset)
 				conn.Write([]byte(resp))
 			} else if cmd != "DISCARD" && cmd != "EXEC" && client.queue {
 				client.commands = append(client.commands, args)
@@ -860,7 +854,6 @@ func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) 
 }
 
 func (server *Redis) handleConnection(conn net.Conn) {
-	log.Printf("Redis client %s -> %s\n", conn.RemoteAddr(), conn.LocalAddr())
 	client := &Client{conn: conn, topics: make(map[string]*Topic)}
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
@@ -943,11 +936,11 @@ func main() {
 		log.Printf("Failed to bind to port %d\n", port)
 		os.Exit(1)
 	}
-	log.Printf("Redis server running at: %s", address)
+	log.Println("Redis server running at: ", address)
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			fmt.Println("Error accepting connection: ", err.Error())
+			log.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
 		}
 		go server.handleConnection(conn)

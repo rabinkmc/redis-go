@@ -99,7 +99,6 @@ func (server *Redis) readRDB() {
 			buf := make([]byte, 4)
 			_, _ = io.ReadFull(reader, buf)
 			millitime = uint64(binary.LittleEndian.Uint32(buf)) * 1000
-			fmt.Println("time sec->ms", millitime)
 			continue
 		} else if value_type == 0xFC {
 			buf := make([]byte, 8)
@@ -108,7 +107,6 @@ func (server *Redis) readRDB() {
 				log.Fatalf("Error reading 8 bytes of unsigned long expiry time: %v", err)
 			}
 			millitime = binary.LittleEndian.Uint64(buf)
-			fmt.Println("time ms ->", millitime)
 			continue
 		}
 		// read key value pair

@@ -73,7 +73,6 @@ func parse_resp_arr(reader *bufio.Reader, arr_size int) []string {
 			log.Fatalf("Error reading trailing CRLF: %v", err)
 		}
 	}
-	log.Printf("resp_arr: %v\n", args)
 	return args
 }
 

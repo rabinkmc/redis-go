@@ -115,16 +115,13 @@ func NewRedis(redis_config RedisConfig) *Redis {
 			log.Fatalf("Unable to connect to the master: %v", err.Error())
 		}
 		send_ping(conn)
-		msg := <-handshake_ch
-		log.Println("received:", msg)
+		<-handshake_ch
 		request1 := []string{"REPLCONF", "listening-port", fmt.Sprintf("%d", redis.port)}
 		send_replconf(conn, request1)
-		msg = <-handshake_ch
-		log.Println("received:", msg)
+		<-handshake_ch
 		request2 := []string{"REPLCONF", "capa", "psync2"}
 		send_replconf(conn, request2)
-		msg = <-handshake_ch
-		log.Println("received:", msg)
+		<-handshake_ch
 		send_psync(conn, "?", "-1")
 	}
 	return redis
