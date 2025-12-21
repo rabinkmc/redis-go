@@ -105,7 +105,10 @@ func NewRedis(redis_config RedisConfig) *Redis {
 		users:          make(map[string]*User),
 	}
 
-	redis.users["default"] = &User{username: "default"}
+	redis.users["default"] = &User{
+		username: "default",
+		hash:     make(map[string]struct{}),
+	}
 	redis.info = make(map[string]map[string]string)
 	redis.rdb_dir = redis_config.rdb_dir
 	redis.dbfilename = redis_config.dbfilename
