@@ -936,7 +936,7 @@ func main() {
 		log.Printf("Failed to bind to port %d\n", port)
 		os.Exit(1)
 	}
-	log.Println("Redis server running at: ", address)
+	log.Println("Server running at: ", address)
 	for {
 		conn, err := l.Accept()
 		if err != nil {
