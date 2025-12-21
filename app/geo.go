@@ -65,7 +65,7 @@ func convertGridNumbersToCoordinates(gridLatitudeNumber, gridLongitudeNumber uin
 	latitude := (gridLatitudeMin + gridLatitudeMax) / 2
 	longitude := (gridLongitudeMin + gridLongitudeMax) / 2
 
-	return longitude, latitude
+	return latitude, longitude
 }
 
 func decode_geocode(zscore uint64) (float64, float64) {
@@ -74,6 +74,25 @@ func decode_geocode(zscore uint64) (float64, float64) {
 	latitudeNumber := compactInt64ToInt32(x)
 	longitudeNumber := compactInt64ToInt32(y)
 	return convertGridNumbersToCoordinates(latitudeNumber, longitudeNumber)
+}
+
+func haversine(θ float64) float64 {
+	return .5 * (1 - math.Cos(θ))
+}
+
+type pos_radian struct {
+	lat  float64
+	long float64
+}
+
+func deg_to_radian(lat, lon float64) pos_radian {
+	return pos_radian{lat * math.Pi / 180, lon * math.Pi / 180}
+}
+
+func hsDist(p1, p2 pos_radian) float64 {
+	const rEarth = 6372797.560856 //m
+	return 2 * rEarth * math.Asin(math.Sqrt(haversine(p2.lat-p1.lat)+
+		math.Cos(p1.lat)*math.Cos(p2.lat)*haversine(p2.long-p1.long)))
 }
 
 func (server *Redis) handleGEOADD(client *Client, args []string) {
@@ -128,16 +147,45 @@ func (server *Redis) handleGEOPOS(client *Client, args []string) {
 		}
 		lat, long := decode_geocode(uint64(entry.zset[idx].score))
 		b.WriteString(encode_list([]string{
-			strconv.FormatFloat(lat, 'f', -1, 64),
 			strconv.FormatFloat(long, 'f', -1, 64),
+			strconv.FormatFloat(lat, 'f', -1, 64),
 		}))
 	}
 	client.conn.Write([]byte(b.String()))
 
 }
 
+func (server *Redis) handleGEODIST(client *Client, args []string) {
+	key := args[0]
+	place1 := args[1]
+	place2 := args[2]
+	entry, _ := server.dict[key]
+	if len(entry.zset) == 0 {
+		client.conn.Write([]byte(simple_err("No place found")))
+		return
+	}
+	id1 := entry.find_znode(place1)
+	if id1 == -1 {
+		err_str := fmt.Sprintf("'%s' not found", place1)
+		client.conn.Write([]byte(simple_err(err_str)))
+		return
+	}
+
+	id2 := entry.find_znode(place2)
+	if id2 == -1 {
+		err_str := fmt.Sprintf("'%s' not found", place2)
+		client.conn.Write([]byte(simple_err(err_str)))
+		return
+	}
+	lat1, long1 := decode_geocode(uint64(entry.zset[id1].score))
+	lat2, long2 := decode_geocode(uint64(entry.zset[id2].score))
+	dist := hsDist(deg_to_radian(lat1, long1), deg_to_radian(lat2, long2))
+	resp := strconv.FormatFloat(dist, 'f', -1, 64)
+	client.conn.Write([]byte(resp_bulk_string(resp)))
+}
+
 func is_geo_cmd(cmd string) bool {
-	commands := []string{"GEOADD", "GEOPOS"}
+	commands := []string{"GEOADD", "GEOPOS", "GEODIST"}
 	for _, command := range commands {
 		if command == cmd {
 			return true
@@ -152,6 +200,8 @@ func (server *Redis) handleGeo(client *Client, args []string) {
 		server.handleGEOADD(client, args[1:])
 	case "GEOPOS":
 		server.handleGEOPOS(client, args[1:])
+	case "GEODIST":
+		server.handleGEODIST(client, args[1:])
 	default:
 		client.conn.Write([]byte(simple_err("shouldn't be here in geo")))
 	}
