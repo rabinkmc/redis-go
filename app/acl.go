@@ -11,7 +11,7 @@ func (server *Redis) handleGETUSER(client *Client, args []string) {
 	var b strings.Builder
 	b.WriteString("*2\r\n")
 	b.WriteString(resp_bulk_string("flags"))
-	b.WriteString(EMPTY_ARRAY)
+	b.WriteString(encode_list([]string{"nopass"}))
 	client.conn.Write([]byte(b.String()))
 }
 
