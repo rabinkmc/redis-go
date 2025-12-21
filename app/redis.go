@@ -32,7 +32,7 @@ type Zset []Znode
 
 type User struct {
 	username string
-	hash     string
+	hash     map[string]struct{}
 }
 
 type Entry struct {

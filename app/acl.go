@@ -21,19 +21,31 @@ func (server *Redis) handleGETUSER(client *Client, args []string) {
 	}
 	var b strings.Builder
 	b.WriteString("*4\r\n")
+	//1
 	b.WriteString(resp_bulk_string("flags"))
-	if user.hash == "" {
+	if len(user.hash) == 0 {
+		//2
 		b.WriteString(encode_list([]string{"nopass"}))
 	} else {
+		//2
 		b.WriteString(EMPTY_ARRAY)
 	}
+	//3
 	b.WriteString(resp_bulk_string("passwords"))
-	if user.hash == "" {
-		b.WriteString(EMPTY_ARRAY)
-	} else {
-		b.WriteString(encode_list([]string{user.hash}))
+	hashes := []string{}
+	for hash := range user.hash {
+		hashes = append(hashes, hash)
+
 	}
+	//4
+	b.WriteString(encode_list(hashes))
 	client.conn.Write([]byte(b.String()))
+}
+
+func get_hash(pass string) string {
+	password := []byte(pass)
+	hash := sha256.Sum256(password)
+	return hex.EncodeToString(hash[:])
 }
 
 func (server *Redis) handleSETUSER(client *Client, args []string) {
@@ -41,27 +53,49 @@ func (server *Redis) handleSETUSER(client *Client, args []string) {
 	user, _ := server.users[username]
 
 	if user == nil {
-		user = &User{username: username}
+		user = &User{username: username, hash: make(map[string]struct{})}
 	}
-	password := []byte(args[1][1:])
-	hash := sha256.Sum256(password)
-	user.hash = hex.EncodeToString(hash[:])
+	// excluding >
+	password := args[1][1:]
+	user.hash[get_hash(password)] = struct{}{}
 	server.users[username] = user
 	client.conn.Write([]byte("+OK\r\n"))
 }
 
+func (server *Redis) handleAUTH(client *Client, args []string) {
+	username := args[0]
+	password := args[1]
+	user, _ := server.users[username]
+	if user == nil {
+		resp_err := "WRONGPASS invalid username-password pair or user is disabled"
+		client.conn.Write([]byte(simple_err(resp_err)))
+		return
+	}
+	hash := get_hash(password)
+	if _, exists := user.hash[hash]; !exists {
+		resp_err := "WRONGPASS invalid username-password pair or user is disabled"
+		client.conn.Write([]byte(simple_err(resp_err)))
+	} else {
+		client.conn.Write([]byte("+OK\r\n"))
+	}
+}
+
 func is_acl_cmd(cmd string) bool {
-	return cmd == "ACL"
+	return cmd == "ACL" || cmd == "AUTH"
 }
 func (server *Redis) handleACL(client *Client, args []string) {
-	cmd := strings.ToUpper(args[1])
-	switch cmd {
-	case "WHOAMI":
+	subcmd := strings.ToUpper(args[1])
+	cmd := strings.ToUpper(args[0])
+
+	switch {
+	case subcmd == "WHOAMI":
 		server.handleWHOAMI(client, args[2:])
-	case "GETUSER":
+	case subcmd == "GETUSER":
 		server.handleGETUSER(client, args[2:])
-	case "SETUSER":
+	case subcmd == "SETUSER":
 		server.handleSETUSER(client, args[2:])
+	case cmd == "AUTH":
+		server.handleAUTH(client, args[1:])
 	default:
 		client.conn.Write([]byte(simple_err("shouldn't be here in acl")))
 	}
