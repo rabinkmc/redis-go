@@ -6,11 +6,39 @@ import (
 	"strings"
 )
 
+const MIN_LATITUDE float64 = -85.05112878
+const MAX_LATITUDE float64 = 85.05112878
+const MIN_LONGITUDE float64 = -180
+const MAX_LONGITUDE float64 = 180
+const LATITUDE_RANGE float64 = MAX_LATITUDE - MIN_LATITUDE
+const LONGITUDE_RANGE float64 = MAX_LONGITUDE - MIN_LONGITUDE
+
 func valid_longitude(x float64) bool {
-	return x >= -180 && x <= 180
+	return x >= MIN_LONGITUDE && x <= MAX_LONGITUDE
 }
 func valid_latitude(x float64) bool {
-	return x >= -85.05112878 && x <= 85.05112878
+	return x >= MIN_LATITUDE && x <= MAX_LATITUDE
+}
+
+func spread_int32_to_int64(u int32) int64 {
+	v := int64(u) & 0xFFFFFFFF
+
+	v = (v | (v << 16)) & 0x0000FFFF0000FFFF
+	v = (v | (v << 8)) & 0x00FF00FF00FF00FF
+	v = (v | (v << 4)) & 0x0F0F0F0F0F0F0F0F
+	v = (v | (v << 2)) & 0x3333333333333333
+	v = (v | (v << 1)) & 0x5555555555555555
+
+	return v
+}
+
+func get_zscore(latitude, longitude float64) int64 {
+	normalized_latitude := int32((1 << 26) * (latitude - MIN_LATITUDE) / LATITUDE_RANGE)
+	normalized_longitude := int32((1 << 26) * (longitude - MIN_LONGITUDE) / LONGITUDE_RANGE)
+	x := spread_int32_to_int64(normalized_latitude)
+	y := spread_int32_to_int64(normalized_longitude)
+
+	return x | (y << 1)
 }
 
 func (server *Redis) handleGEOADD(client *Client, args []string) {
@@ -40,9 +68,11 @@ func (server *Redis) handleGEOADD(client *Client, args []string) {
 		client.conn.Write([]byte(resp))
 		return
 	}
-	score := "0"
+
+	score := get_zscore(latitude, longitude)
+	score_str := strconv.FormatInt(score, 10)
 	member := args[3]
-	server.handleZADD(client, []string{key, score, member})
+	server.handleZADD(client, []string{key, score_str, member})
 }
 
 func is_geo_cmd(cmd string) bool {
