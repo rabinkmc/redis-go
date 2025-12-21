@@ -65,7 +65,7 @@ func convertGridNumbersToCoordinates(gridLatitudeNumber, gridLongitudeNumber uin
 	latitude := (gridLatitudeMin + gridLatitudeMax) / 2
 	longitude := (gridLongitudeMin + gridLongitudeMax) / 2
 
-	return latitude, longitude
+	return longitude, latitude
 }
 
 func decode_geocode(zscore uint64) (float64, float64) {
