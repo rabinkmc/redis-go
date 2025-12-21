@@ -184,8 +184,50 @@ func (server *Redis) handleGEODIST(client *Client, args []string) {
 	client.conn.Write([]byte(resp_bulk_string(resp)))
 }
 
+func (server *Redis) handleGEOSEARCH(client *Client, args []string) {
+	key := args[0]
+	// args[1] => FROMLONLAT
+	longitude, err := strconv.ParseFloat(args[2], 64)
+	if err != nil {
+		resp := simple_err(
+			fmt.Sprintf("failed to parse '%s' to float", args[1]),
+		)
+
+		client.conn.Write([]byte(resp))
+		return
+	}
+	latitude, err := strconv.ParseFloat(args[3], 64)
+	if err != nil {
+		resp := simple_err(
+			fmt.Sprintf("failed to parse '%s' to float", args[2]),
+		)
+
+		client.conn.Write([]byte(resp))
+		return
+	}
+	// args[4] BYRADIUS
+	within, err := strconv.ParseFloat(args[5], 64)
+	// args[6] unit will be m for us
+	entry, _ := server.dict[key]
+	if len(entry.zset) == 0 {
+		// resp := "No place found for the given key"
+		client.conn.Write([]byte(EMPTY_ARRAY))
+		return
+	}
+	res := []string{}
+	for _, item := range entry.zset {
+		lat1, long1 := decode_geocode(uint64(item.score))
+		dist := hsDist(deg_to_radian(lat1, long1), deg_to_radian(latitude, longitude))
+		if dist <= within {
+			res = append(res, item.member)
+		}
+	}
+	client.conn.Write([]byte(encode_list(res)))
+
+}
+
 func is_geo_cmd(cmd string) bool {
-	commands := []string{"GEOADD", "GEOPOS", "GEODIST"}
+	commands := []string{"GEOADD", "GEOPOS", "GEODIST", "GEOSEARCH"}
 	for _, command := range commands {
 		if command == cmd {
 			return true
@@ -202,6 +244,8 @@ func (server *Redis) handleGeo(client *Client, args []string) {
 		server.handleGEOPOS(client, args[1:])
 	case "GEODIST":
 		server.handleGEODIST(client, args[1:])
+	case "GEOSEARCH":
+		server.handleGEOSEARCH(client, args[1:])
 	default:
 		client.conn.Write([]byte(simple_err("shouldn't be here in geo")))
 	}
