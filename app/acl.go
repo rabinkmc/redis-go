@@ -76,6 +76,8 @@ func (server *Redis) handleAUTH(client *Client, args []string) {
 		resp_err := "-WRONGPASS invalid username-password pair or user is disabled\r\n"
 		client.conn.Write([]byte(resp_err))
 	} else {
+		client.user = user
+		client.auth = true
 		client.conn.Write([]byte("+OK\r\n"))
 	}
 }

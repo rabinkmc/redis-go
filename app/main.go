@@ -665,7 +665,6 @@ func (server *Redis) handleWAIT(conn net.Conn, args []string) {
 		conn.Write([]byte(resp_int(count)))
 		return
 	}
-	fmt.Println("master_offset:", wait_offset)
 	request := []byte(encode_list([]string{"REPLCONF", "GETACK", "*"}))
 	server.master_offset += len(request)
 	for _, slave_conn := range server.slaves {
@@ -857,6 +856,8 @@ func (server *Redis) handleConnection(conn net.Conn) {
 	client := &Client{conn: conn, topics: make(map[string]*Topic)}
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
+	nopass_checked := false
+	var nopass = false
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -878,6 +879,19 @@ func (server *Redis) handleConnection(conn net.Conn) {
 		}
 		cmd := strings.ToUpper(args[0])
 		resp := ""
+
+		if client.user == nil {
+			client.user = server.users["default"]
+		}
+		if !nopass_checked {
+			nopass = client.user.nopass()
+			nopass_checked = true
+		}
+		if !nopass && !client.auth && cmd != "AUTH" {
+			resp := "-NOAUTH Authentication required\r\n"
+			client.conn.Write([]byte(resp))
+			continue
+		}
 
 		if client.subscribed || in_subscription_mode(client, cmd) {
 			server.handleSubscription(client, args)

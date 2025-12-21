@@ -35,6 +35,10 @@ type User struct {
 	hash     map[string]struct{}
 }
 
+func (user *User) nopass() bool {
+	return len(user.hash) == 0
+}
+
 type Entry struct {
 	val      string
 	list     []string
@@ -63,7 +67,6 @@ type Redis struct {
 	slaves          []net.Conn
 	replica_waiters []*WaitRequest
 	ack_slaves      map[net.Conn]int
-	wait_offset     int
 	master_offset   int
 	rdb_dir         string
 	dbfilename      string
@@ -81,6 +84,8 @@ type Client struct {
 	commands   [][]string
 	queue      bool
 	subscribed bool
+	user       *User
+	auth       bool
 }
 
 func NewRedis(redis_config RedisConfig) *Redis {
