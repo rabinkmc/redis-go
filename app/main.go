@@ -883,6 +883,10 @@ func (server *Redis) handleConnection(conn net.Conn) {
 			server.handleSubscription(client, args)
 			continue
 		}
+		if is_acl_cmd(cmd) {
+			server.handleACL(client, args)
+			continue
+		}
 		if is_geo_cmd(cmd) {
 			server.handleGeo(client, args)
 			continue
