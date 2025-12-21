@@ -9,9 +9,11 @@ func (server *Redis) handleWHOAMI(client *Client, args []string) {
 func (server *Redis) handleGETUSER(client *Client, args []string) {
 	// user := args[0]
 	var b strings.Builder
-	b.WriteString("*2\r\n")
+	b.WriteString("*4\r\n")
 	b.WriteString(resp_bulk_string("flags"))
 	b.WriteString(encode_list([]string{"nopass"}))
+	b.WriteString(resp_bulk_string("passwords"))
+	b.WriteString(EMPTY_ARRAY)
 	client.conn.Write([]byte(b.String()))
 }
 
