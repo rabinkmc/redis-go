@@ -28,10 +28,7 @@ func (server *Redis) removeSlave(conn net.Conn) {
 		}
 	}
 	server.slaves = newSlaves
-
-	// remove ack state
 	delete(server.ack_slaves, conn)
-
 	log.Println("Slave disconnected:", conn.RemoteAddr())
 }
 
@@ -240,6 +237,8 @@ func (server *Redis) handleLLEN(key string) string {
 }
 
 func (server *Redis) handleLPOP(args []string) string {
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	key := args[0]
 	entry, ok := server.dict[key]
 	if !ok || len(entry.list) == 0 {
@@ -413,9 +412,9 @@ func (server *Redis) handleXADD(args []string) string {
 		arr := "*1\r\n" + "*2\r\n" + resp_bulk_string(stream.id) + encode_list(stream.items)
 		xread_val := "*1\r\n" + "*2\r\n" + resp_bulk_string(key) + arr
 		delete(server.waiters, key)
-		go func() {
-			ch <- xread_val
-		}()
+		go func(s string) {
+			ch <- s
+		}(xread_val)
 	}
 
 	return resp_bulk_string(stream.id)
@@ -706,10 +705,10 @@ func (server *Redis) Execute(conn net.Conn, client *Client, args []string) strin
 		return server.handleGET(args[1])
 	case "RPUSH":
 		return server.handleRPUSH(args[1:])
-	case "LRANGE":
-		return server.handleLRANGE(args[1:])
 	case "LPUSH":
 		return server.handleLPUSH(args[1:])
+	case "LRANGE":
+		return server.handleLRANGE(args[1:])
 	case "LLEN":
 		return server.handleLLEN(args[1])
 	case "LPOP":

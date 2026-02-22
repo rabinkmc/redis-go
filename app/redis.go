@@ -125,11 +125,11 @@ func NewRedis(redis_config RedisConfig) *Redis {
 		redis.master_addr = fmt.Sprintf("%s:%s", parts[0], parts[1])
 		// initial handshake
 		conn, err := net.Dial("tcp", redis.master_addr)
-		handshake_ch := make(chan string)
-		go redis.handleReplConnection(conn, handshake_ch) // replica reads from this connection
 		if err != nil {
 			log.Fatalf("Unable to connect to the master: %v", err.Error())
 		}
+		handshake_ch := make(chan string)
+		go redis.handleReplConnection(conn, handshake_ch) // replica reads from this connection
 		send_ping(conn)
 		<-handshake_ch
 		request1 := []string{"REPLCONF", "listening-port", fmt.Sprintf("%d", redis.port)}

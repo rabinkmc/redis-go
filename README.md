@@ -1,33 +1,34 @@
-[![progress-banner](https://backend.codecrafters.io/progress/redis/4be7f885-3ad3-4e74-8146-ebb1ecfbffee)](https://app.codecrafters.io/users/rabinkmc?r=2qF)
+## Redis Clone
+`PING`, 
+`ECHO`, 
+`SET`, 
+`GET`, 
+`RPUSH`,
+`LPUSH`,
+`LRANGE`,
+`LLEN`,
+`LPOP`, 
+`BLPOP`,
+`TYPE`,
+`XADD`, 
+`XRANGE`,
+`XREAD`
+`INCR`,
 
-This is a starting point for Go solutions to the
-["Build Your Own Redis" Challenge](https://codecrafters.io/challenges/redis).
+`MULTI` `EXEC` `DISCARD`
 
-In this challenge, you'll build a toy Redis clone that's capable of handling
-basic commands like `PING`, `SET` and `GET`. Along the way we'll learn about
-event loops, the Redis protocol and more.
+`INFO` `CONFIG`,`WAIT`, `REPLCONF`, `PSYNC`
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+`KEYS`
 
-# Passing the first stage
+<!--PUBSUB-->
+`PING`, `SUBSCRIBE`, `UNSUBSCRIBE` `PUBLISH`
 
-The entry point for your Redis implementation is in `app/main.go`. Study and
-uncomment the relevant code, and push your changes to pass the first stage:
+<!--AUTHORIZATION-->
+`WHOAMI`, `GETUSER`, `SETUSER`, `AUTH`
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
-```
+<!--SET-->
+`ZADD`, `ZRANK`, `ZRANGE`, `ZCARD`, `ZSCORE`, `ZREM`
 
-That's all!
-
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `go (1.24)` installed locally
-1. Run `./your_program.sh` to run your Redis server, which is implemented in
-   `app/main.go`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+<!--GEO-->
+`GEOADD`, `GEOPOS`, `GEODIST`, `GEOSEARCH`
