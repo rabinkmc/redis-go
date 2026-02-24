@@ -1,3 +1,4 @@
+.PHONY: run
 app: *.go
 	go build -o app *.go
 run: app

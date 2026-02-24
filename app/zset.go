@@ -42,47 +42,60 @@ func (entry *Entry) add_znode(item Znode) int {
 	}
 }
 
-func (server *Redis) handleZADD(client *Client, args []string) {
-	key := args[0]
-	score, err := strconv.ParseFloat(args[1], 64)
+func HandleZADD(server *Redis, cmd Command) {
+	if len(cmd.Args) < 4 {
+		cmd.Client.WriteErr("Invalid usage: ZADD key score member")
+		return
+	}
+	client := cmd.Client
+	key := cmd.Args[1]
+	score, err := strconv.ParseFloat(cmd.Args[2], 64)
 	if err != nil {
 		client.conn.Write([]byte(
-			simple_err(fmt.Sprintf("'%s' can't be converted to float", args[1])),
+			simple_err(fmt.Sprintf("'%s' can't be converted to float", cmd.Args[2])),
 		))
 		return
 	}
-	member := args[2]
+	member := cmd.Args[3]
 	entry, _ := server.dict[key]
 	znode := Znode{member: member, score: score}
 	rv := entry.add_znode(znode)
 	server.dict[key] = entry
-	client.conn.Write([]byte(resp_int(rv)))
+	cmd.Client.WriteInt(rv)
 }
 
-func (server *Redis) handleZRANK(client *Client, args []string) {
-	key := args[0]
-	member := args[1]
+func HandleZRANK(server *Redis, cmd Command) {
+	if len(cmd.Args) < 3 {
+		cmd.Client.WriteErr("Invalid usage: ZRANK key member")
+		return
+	}
+	key := cmd.Args[1]
+	member := cmd.Args[2]
 	entry, _ := server.dict[key]
 	if len(entry.zset) == 0 {
-		client.conn.Write([]byte(NULL_BULKSTRING))
+		cmd.Client.WriteNil()
 		return
 	}
 	if idx := entry.find_znode(member); idx == -1 {
-		client.conn.Write([]byte(NULL_BULKSTRING))
+		cmd.Client.WriteNil()
 	} else {
-		client.conn.Write([]byte(resp_int(idx)))
+		cmd.Client.WriteInt(idx)
 	}
 }
 
-func (server *Redis) handleZRANGE(client *Client, args []string) {
-	key := args[0]
+func HandleZRANGE(server *Redis, cmd Command) {
+	if len(cmd.Args) < 4 {
+		cmd.Client.WriteErr("Invaid usage: ZRANGE key start end")
+	}
+	client := cmd.Client
+	key := cmd.Args[1]
 	entry, _ := server.dict[key]
 	if len(entry.zset) == 0 {
 		client.conn.Write([]byte(EMPTY_ARRAY))
 		return
 	}
-	start, _ := strconv.ParseInt(args[1], 10, 64)
-	end, _ := strconv.ParseInt(args[2], 10, 64)
+	start, _ := strconv.ParseInt(cmd.Args[2], 10, 64)
+	end, _ := strconv.ParseInt(cmd.Args[3], 10, 64)
 	n := int64(len(entry.zset))
 	if start < 0 {
 		if -start >= n {
@@ -106,46 +119,54 @@ func (server *Redis) handleZRANGE(client *Client, args []string) {
 	for i := start; i <= end; i++ {
 		resp = append(resp, entry.zset[i].member)
 	}
-	client.conn.Write([]byte(encode_list(resp)))
+	cmd.Client.WriteList(resp)
 }
 
-func (server *Redis) handleZCARD(client *Client, args []string) {
-	key := args[0]
-	entry, _ := server.dict[key]
-	client.conn.Write([]byte(resp_int(len(entry.zset))))
-}
-
-func (server *Redis) handleZSCORE(client *Client, args []string) {
-	key := args[0]
-	entry, _ := server.dict[key]
-	if len(entry.zset) == 0 {
-		client.conn.Write([]byte(NULL_BULKSTRING))
+func HandleZCARD(server *Redis, cmd Command) {
+	if len(cmd.Args) < 2 {
+		cmd.Client.WriteErr("Invalid usage:\nZCARD key")
 		return
 	}
-	if idx := entry.find_znode(args[1]); idx != -1 {
+	key := cmd.Args[1]
+	entry, _ := server.dict[key]
+	cmd.Client.WriteInt(len(entry.zset))
+}
+
+func HandleZSCORE(server *Redis, cmd Command) {
+	if len(cmd.Args) < 3 {
+		cmd.Client.WriteErr("Invalid usage:\nZSCORE key member")
+		return
+	}
+	key := cmd.Args[1]
+	entry, _ := server.dict[key]
+	if len(entry.zset) == 0 {
+		cmd.Client.WriteNil()
+		return
+	}
+	if idx := entry.find_znode(cmd.Args[2]); idx != -1 {
 		s := strconv.FormatFloat(entry.zset[idx].score, 'f', -1, 64)
-		client.conn.Write([]byte(resp_bulk_string(s)))
+		cmd.Client.WriteBulkString(s)
 	} else {
-		client.conn.Write([]byte(NULL_BULKSTRING))
+		cmd.Client.WriteNil()
 	}
 
 }
 
-func (server *Redis) handleZREM(client *Client, args []string) {
-	key := args[0]
-	if len(args) < 2 {
-		client.conn.Write([]byte(simple_err("member not specified")))
+func HandleZREM(server *Redis, cmd Command) {
+	key := cmd.Args[1]
+	if len(cmd.Args) < 3 {
+		cmd.Client.WriteErr("Invalid usage: ZRANK key member")
 		return
 	}
-	member := args[1]
+	member := cmd.Args[2]
 	entry, _ := server.dict[key]
 	if len(entry.zset) == 0 {
-		client.conn.Write([]byte(resp_int(0)))
+		cmd.Client.WriteInt(0)
 		return
 	}
 	idx := entry.find_znode(member)
 	if idx == -1 {
-		client.conn.Write([]byte(resp_int(0)))
+		cmd.Client.WriteInt(0)
 		return
 	}
 	items := entry.zset[:0]
@@ -157,33 +178,35 @@ func (server *Redis) handleZREM(client *Client, args []string) {
 	}
 	entry.zset = items
 	server.dict[key] = entry
-	client.conn.Write([]byte(resp_int(1)))
+	cmd.Client.WriteInt(1)
 }
 
-func is_set_cmd(cmd string) bool {
+func is_set_cmd(cmd Command) bool {
+	cmdName := cmd.Args[0]
 	commands := []string{"ZADD", "ZRANK", "ZRANGE", "ZCARD", "ZSCORE", "ZREM"}
 	for _, command := range commands {
-		if cmd == command {
+		if command == cmdName {
 			return true
 		}
 	}
 	return false
 }
 
-func (server *Redis) handleZset(client *Client, args []string) {
-	cmd := strings.ToUpper(args[0])
-	switch cmd {
+func HandleZset(server *Redis, cmd Command) {
+	args := cmd.Args
+	cmdName := strings.ToUpper(args[0])
+	switch cmdName {
 	case "ZADD":
-		server.handleZADD(client, args[1:])
+		HandleZADD(server, cmd)
 	case "ZRANK":
-		server.handleZRANK(client, args[1:])
+		HandleZRANK(server, cmd)
 	case "ZRANGE":
-		server.handleZRANGE(client, args[1:])
+		HandleZRANGE(server, cmd)
 	case "ZCARD":
-		server.handleZCARD(client, args[1:])
+		HandleZCARD(server, cmd)
 	case "ZSCORE":
-		server.handleZSCORE(client, args[1:])
+		HandleZSCORE(server, cmd)
 	case "ZREM":
-		server.handleZREM(client, args[1:])
+		HandleZREM(server, cmd)
 	}
 }

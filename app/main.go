@@ -14,131 +14,70 @@ import (
 	"time"
 )
 
-const NULL_ARRAY string = "*-1\r\n"
-const EMPTY_ARRAY string = "*0\r\n"
-
-const NULL_BULKSTRING string = "$-1\r\n"
-
-func (server *Redis) removeSlave(conn net.Conn) {
-	// remove from slaves list
-	newSlaves := server.slaves[:0]
-	for _, c := range server.slaves {
-		if c != conn {
-			newSlaves = append(newSlaves, c)
-		}
-	}
-	server.slaves = newSlaves
-	delete(server.ack_slaves, conn)
-	log.Println("Slave disconnected:", conn.RemoteAddr())
+func HandlePING(server *Redis, cmd Command) {
+	cmd.Client.WriteStatus("PONG")
 }
 
-func (server *Redis) slave_sync_count(wait_offset int) int {
-	if server.master_offset == 0 {
-		return len(server.slaves)
-	}
-	count := 0
-	for _, offset := range server.ack_slaves {
-		if offset >= wait_offset {
-			count++
-		}
-	}
-	return count
+func HandleECHO(server *Redis, cmd Command) {
+	cmd.Client.WriteBulkString(cmd.Args[1])
 }
 
-func (server *Redis) write_slaves(cmd string, buf []byte) {
-	if len(server.slaves) == 0 {
+func HandleSET(server *Redis, cmd Command) {
+	if len(cmd.Args) < 3 {
+		cmd.Client.WriteErr(
+			"Not enough args for SET: SET key val [EX|PX] [time]",
+		)
 		return
 	}
-	if !IsWriteCmd(cmd) {
-		return
-	}
-	server.master_offset += len(buf)
-	for _, conn := range server.slaves {
-		_, err := conn.Write(buf)
-		if err != nil {
-			log.Printf("Error writing to the %v: %v\n", conn, err.Error())
-			server.removeSlave(conn)
-			conn.Close()
-		}
-	}
-}
-
-func send_ping(conn net.Conn) {
-	_, err := conn.Write([]byte(encode_list([]string{"PING"})))
-	if err != nil {
-		log.Fatalf(
-			"Failed to send PING command to the master: %v",
-			err.Error(),
-		)
-	}
-}
-func send_replconf(conn net.Conn, request []string) {
-	_, err := conn.Write([]byte(encode_list(request)))
-	if err != nil {
-		log.Fatalf(
-			"Error sending replconf:: %v: %v",
-			request, err.Error(),
-		)
-	}
-}
-
-func send_psync(conn net.Conn, replication_id, offset string) {
-	request := []string{"PSYNC", replication_id, offset}
-	_, err := conn.Write([]byte(encode_list(request)))
-	if err != nil {
-		log.Fatalf(
-			"Error sending PSYNC:: %v: %v\n",
-			request, err.Error(),
-		)
-	}
-}
-
-func (server *Redis) handlePING() string {
-	return "+PONG\r\n"
-}
-
-func (server *Redis) handleECHO(arg string) string {
-	return resp_bulk_string(arg)
-}
-
-func (server *Redis) handleSET(args []string) string {
-	key := args[0]
-	value := args[1]
+	key := cmd.Args[1]
+	value := cmd.Args[2]
 	entry := Entry{val: value}
-	if len(args) >= 4 {
+	if len(cmd.Args) >= 5 {
 		ex_time := time.Now()
-		if args[2] == "PX" {
-			ms, _ := strconv.Atoi(args[3])
+		if cmd.Args[3] == "PX" {
+			ms, _ := strconv.Atoi(cmd.Args[4])
 			ex_time = ex_time.Add(time.Duration(ms) * time.Millisecond)
-		} else if args[2] == "EX" {
-			sec, _ := strconv.Atoi(args[3])
+		} else if cmd.Args[3] == "EX" {
+			sec, _ := strconv.Atoi(cmd.Args[4])
 			ex_time = ex_time.Add(time.Duration(sec) * time.Second)
 		}
 		entry.time = &ex_time
 	}
 	server.dict[key] = entry
-	return "+OK\r\n"
+	cmd.Client.WriteStatus("OK")
 }
 
-func (server *Redis) handleGET(key string) string {
+func HandleGET(server *Redis, cmd Command) {
+	if len(cmd.Args) < 2 {
+		cmd.Client.WriteErr(
+			"Get requires a key",
+		)
+		return
+	}
+	key := cmd.Args[1]
 	server.readRDB()
 	entry, ok := server.dict[key]
 	if !ok {
-		return "$-1\r\n"
+		cmd.Client.WriteNil()
+		return
 	}
 	if entry.time != nil && entry.time.Before(time.Now()) {
 		delete(server.dict, key)
-		return "$-1\r\n"
+		cmd.Client.WriteNil()
+		return
 	}
-
-	return resp_bulk_string(entry.val)
+	cmd.Client.WriteBulkString(entry.val)
 }
 
-func (server *Redis) handleRPUSH(args []string) string {
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	key := args[0]
-	values := args[1:]
+func HandleRPUSH(server *Redis, cmd Command) {
+	if len(cmd.Args) < 3 {
+		cmd.Client.WriteErr(
+			"Not enough args for RPUSH: RPUSH key val [val...]",
+		)
+		return
+	}
+	key := cmd.Args[1]
+	values := cmd.Args[2:]
 	entry := server.dict[key]
 
 	entry.list = append(entry.list, values...)
@@ -155,15 +94,18 @@ func (server *Redis) handleRPUSH(args []string) string {
 			ch <- val
 		}()
 	}
-	resp := fmt.Sprintf(":%d\r\n", n)
-	return resp
+	cmd.Client.WriteInt(n)
 }
 
-func (server *Redis) handleLPUSH(args []string) string {
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	key := args[0]
-	values := args[1:]
+func HandleLPUSH(server *Redis, cmd Command) {
+	if len(cmd.Args) < 3 {
+		cmd.Client.WriteErr(
+			"Not enough args for LPUSH: LPUSH key val [val...]",
+		)
+		return
+	}
+	key := cmd.Args[1]
+	values := cmd.Args[2:]
 	entry := server.dict[key]
 	items := []string{}
 	for i := len(values) - 1; i > -1; i-- {
@@ -183,21 +125,23 @@ func (server *Redis) handleLPUSH(args []string) string {
 			ch <- val
 		}()
 	}
-	resp := fmt.Sprintf(":%d\r\n", n)
-	return resp
+	cmd.Client.WriteInt(n)
 }
 
-func (server *Redis) handleLRANGE(args []string) string {
-	key := args[0]
-	empty_arr := "*0\r\n"
+func HandleLRANGE(server *Redis, cmd Command) {
+	key := cmd.Args[1]
 	entry, ok := server.dict[key]
-	// key doesn't exist
 	if !ok {
-		return empty_arr
+		cmd.Client.WriteEmpty()
+		return
+	}
+	if len(cmd.Args) < 4 {
+		cmd.Client.WriteErr("Not enough arguments for LRANGE")
+		return
 	}
 
-	start, _ := strconv.Atoi(args[1])
-	end, _ := strconv.Atoi(args[2])
+	start, _ := strconv.Atoi(cmd.Args[2])
+	end, _ := strconv.Atoi(cmd.Args[3])
 	n := len(entry.list)
 	if start < 0 {
 		start = n + start
@@ -212,93 +156,96 @@ func (server *Redis) handleLRANGE(args []string) string {
 		}
 	}
 	if (start > end) || (start > n) {
-		return empty_arr
+		cmd.Client.WriteEmpty()
+		return
 	}
-
-	// fix the upper bounds
 	if end >= n {
 		end = n - 1
 	}
 	lslice := entry.list[start : end+1]
-
-	resp := encode_list(lslice)
-	return resp
+	cmd.Client.WriteList(lslice)
 }
 
-func (server *Redis) handleLLEN(key string) string {
-	zero := ":0\r\n"
+func HandleLLEN(server *Redis, cmd Command) {
+	if len(cmd.Args) < 2 {
+		cmd.Client.WriteErr("Key required for the list item")
+		return
+	}
+	key := cmd.Args[1]
 	entry, ok := server.dict[key]
 	if !ok {
-		return zero
+		cmd.Client.WriteInt(0)
+	} else {
+		cmd.Client.WriteInt(len(entry.list))
 	}
-	var n int = len(entry.list)
-	resp := fmt.Sprintf(":%d\r\n", n)
-	return resp
 }
 
-func (server *Redis) handleLPOP(args []string) string {
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	key := args[0]
+func HandleLPOP(server *Redis, cmd Command) {
+	if len(cmd.Args) < 2 {
+		cmd.Client.WriteErr("Key required for the list item")
+		return
+	}
+	key := cmd.Args[1]
 	entry, ok := server.dict[key]
 	if !ok || len(entry.list) == 0 {
-		return "$-1\r\n"
+		cmd.Client.WriteNil()
+		return
 	}
 	n := len(entry.list)
-	if len(args) >= 2 {
-		idx, _ := strconv.Atoi(args[1])
+	if len(cmd.Args) >= 3 {
+		idx, _ := strconv.Atoi(cmd.Args[2])
 		if idx > n {
 			idx = n
 		}
 		front := entry.list[:idx]
 		entry.list = entry.list[idx:]
 		server.dict[key] = entry
-		return encode_list(front)
+		cmd.Client.WriteList(front)
 	} else {
 		front := entry.list[0]
 		entry.list = entry.list[1:]
 		server.dict[key] = entry
-		return resp_bulk_string(front)
+		cmd.Client.WriteBulkString(front)
 	}
 }
 
-func (server *Redis) handleBLPOP(args []string) string {
-	server.mu.Lock()
-	key := args[0]
-	timeoutSec, _ := strconv.ParseFloat(args[1], 64)
+func HandleBLPOP(server *Redis, cmd Command) {
+	if len(cmd.Args) < 3 {
+		cmd.Client.WriteErr("Invalid usage: BLPOP key MX_TIME")
+		return
+	}
+	key := cmd.Args[1]
+	timeoutSec, _ := strconv.ParseFloat(cmd.Args[2], 64)
 	timeout := time.Duration(timeoutSec*1000) * time.Millisecond
 	entry, ok := server.dict[key]
 	if ok && len(entry.list) > 0 {
 		val := entry.list[0]
 		entry.list = entry.list[1:]
 		server.dict[key] = entry
-		server.mu.Unlock()
-		return encode_list([]string{key, val})
+		cmd.Client.WriteList([]string{key, val})
 	}
 	ch := make(chan string)
 	server.waiters[key] = ch
-	server.mu.Unlock()
 	if timeout == 0.0 {
 		val := <-ch
-		return encode_list([]string{key, val})
+		cmd.Client.WriteList([]string{key, val})
 	}
 	select {
 	case val := <-ch:
-		return encode_list([]string{key, val})
+		cmd.Client.WriteList([]string{key, val})
 	case <-time.After(timeout):
-		server.mu.Lock()
 		delete(server.waiters, key)
-		server.mu.Unlock()
-		return NULL_ARRAY
+		cmd.Client.WriteNil()
 	}
-
 }
-func (server *Redis) handleTYPE(args []string) string {
-	key := args[0]
+
+func HandleTYPE(server *Redis, cmd Command) {
+	key := cmd.Args[1]
 	entry, ok := server.dict[key]
 	resp := "none"
 	if !ok {
-		return fmt.Sprintf("+%s\r\n", resp)
+		cmd.Client.WriteStatus(resp)
+		return
 	}
 	if entry.val != "" {
 		resp = "string"
@@ -307,7 +254,7 @@ func (server *Redis) handleTYPE(args []string) string {
 	} else if len(entry.list) > 0 {
 		resp = "list"
 	}
-	return fmt.Sprintf("+%s\r\n", resp)
+	cmd.Client.WriteStatus(resp)
 }
 
 func (entry *Entry) NewStream(stream_id string, items []string) (*Stream, string) {
@@ -342,10 +289,18 @@ func (entry *Entry) NewStream(stream_id string, items []string) (*Stream, string
 		}
 		stream_id = fmt.Sprintf("%d-%d", part1, part2)
 	}
-
 	parts := strings.Split(stream_id, "-")
-	time, _ := strconv.ParseInt(parts[0], 10, 64)
-	seq, _ := strconv.ParseInt(parts[1], 10, 64)
+	if len(parts) < 2 {
+		return nil, simple_err("Invalid id: required as (1-2)")
+	}
+	time, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return nil, err.Error()
+	}
+	seq, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return nil, err.Error()
+	}
 
 	stream := &Stream{
 		id:    stream_id,
@@ -369,19 +324,20 @@ func (entry *Entry) NewStream(stream_id string, items []string) (*Stream, string
 
 }
 
-func (server *Redis) handleXADD(args []string) string {
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	key := args[0]
-	id := args[1]
+func HandleXADD(server *Redis, cmd Command) {
+	if len(cmd.Args) < 4 {
+		cmd.Client.WriteErr("Invalid usage: XADD stream_key stream_id field val [field val...]")
+	}
+	key := cmd.Args[1]
+	id := cmd.Args[2]
 	entry, _ := server.dict[key]
 	if len(entry.streams) == 0 {
 		entry.streamMS = make(map[int64]int)
 	}
-
-	stream, err := entry.NewStream(id, args[2:])
+	stream, err := entry.NewStream(id, cmd.Args[3:])
 	if err != "" {
-		return err
+		cmd.Client.WriteErr(err)
+		return
 	}
 	entry.streams = append(entry.streams, *stream)
 	_, ok := entry.streamMS[stream.time]
@@ -397,7 +353,8 @@ func (server *Redis) handleXADD(args []string) string {
 		go func() {
 			ch <- xread_val
 		}()
-		return resp_bulk_string(stream.id)
+		cmd.Client.WriteBulkString(stream.id)
+		return
 	}
 
 	// brute force solution
@@ -417,25 +374,27 @@ func (server *Redis) handleXADD(args []string) string {
 		}(xread_val)
 	}
 
-	return resp_bulk_string(stream.id)
+	cmd.Client.WriteBulkString(stream.id)
 }
 
-func (server *Redis) handleXRANGE(args []string) string {
-	key := args[0]
+func HandleXRANGE(server *Redis, cmd Command) {
+	if len(cmd.Args) < 4 {
+		cmd.Client.WriteErr("Invalid usage: XRANGE key start_seq end_seq")
+		return
+	}
+	key := cmd.Args[1]
 	entry, _ := server.dict[key]
-
 	start_index := 0
 	end_index := len(entry.streams) - 1
-	if args[1] != "-" {
-		start_index = bsearch_gte(entry.streams, args[1])
+	if cmd.Args[2] != "-" {
+		start_index = bsearch_gte(entry.streams, cmd.Args[2])
 	}
-	if args[2] != "+" {
-		end_index = bsearch_lte(entry.streams, args[2])
+	if cmd.Args[3] != "+" {
+		end_index = bsearch_lte(entry.streams, cmd.Args[3])
 	}
 	if start_index == -1 || end_index == -1 {
-		return NULL_ARRAY
+		cmd.Client.WriteNil()
 	}
-
 	stream_count := 0
 	var b strings.Builder
 	for i := start_index; i <= end_index; i++ {
@@ -444,10 +403,11 @@ func (server *Redis) handleXRANGE(args []string) string {
 		stream_count += 1
 		b.WriteString(curr_str)
 	}
-	return fmt.Sprintf("*%d\r\n%s", stream_count, b.String())
+	resp := fmt.Sprintf("*%d\r\n%s", stream_count, b.String())
+	cmd.Client.WriteString(resp)
 }
 
-func (server *Redis) handleXREAD(args []string) string {
+func HandleXREAD(server *Redis, cmd Command) {
 	// assuming the second command is STREAMS
 	// assert args[1] == STREAMS
 	// single case
@@ -467,6 +427,7 @@ func (server *Redis) handleXREAD(args []string) string {
 	// one if data exists we return
 	// else we create a channel, put channel in our waiter map, we wait for the sender to send the data to that channel
 	// once we have the data we proceed as before
+	args := cmd.Args[2:]
 	if len(args) < 2 || len(args)%2 == 1 {
 		log.Fatalf("Invalid arguments")
 	}
@@ -476,74 +437,67 @@ func (server *Redis) handleXREAD(args []string) string {
 	for i := 0; i < n_keys; i++ {
 		stream_key := args[i]
 		stream_id := args[i+n_keys]
-		resp := server.handleXREADSINGLE(stream_key, stream_id)
+		resp := HandleXREADSINGLE(server, stream_key, stream_id)
 		b.WriteString(resp)
 	}
-	return b.String()
+	cmd.Client.WriteString(b.String())
 }
 
 func (entry *Entry) stream_exists(id string) bool {
 	return bsearch_gt(entry.streams, id) != -1
 }
 
-func (server *Redis) handleXREADBLOCK(args []string) string {
+func HandleXREADBLOCK(server *Redis, cmd Command) {
 	// args[0] == time
 	// args[1] == STREAMS
-	key := args[2]
-	id := args[3]
+	key := cmd.Args[3]
+	id := cmd.Args[4]
 	entry, ok := server.dict[key]
 	if id != "$" && ok && entry.stream_exists(id) {
-		return server.handleXREADSINGLE(key, id)
+		resp := HandleXREADSINGLE(server, key, id)
+		cmd.Client.WriteString(resp)
 	}
-	mtime, _ := strconv.ParseFloat(args[0], 64)
+	mtime, _ := strconv.ParseFloat(cmd.Args[1], 64)
 	timeout := time.Duration(mtime) * time.Millisecond
 	ch := make(chan string)
-
 	waiting_key := key + "," + id
-	server.mu.Lock()
 	server.stream_waiters[waiting_key] = ch
-	server.mu.Unlock()
-
 	if timeout == 0.0 {
 		val := <-ch
-		return val
+		cmd.Client.WriteString(val)
 	}
 	select {
 	case val := <-ch:
-		return val
+		cmd.Client.WriteString(val)
 	case <-time.After(timeout):
-		server.mu.Lock()
 		delete(server.waiters, id)
-		server.mu.Unlock()
-		return NULL_ARRAY
+		cmd.Client.WriteNil()
 	}
 }
 
-func (server *Redis) handleXREADSINGLE(key, stream_id string) string {
+func HandleXREADSINGLE(server *Redis, key, stream_id string) string {
 	// this function shouldn't be called if there is no data
 	entry, _ := server.dict[key]
 	start_idx := bsearch_gt(entry.streams, stream_id)
 	end_idx := len(entry.streams) - 1
-
 	stream_count := 0
 	result := ""
-	// handle for start_idx
+	// Handle for start_idx
 	// i should filp the operations
 	// entry.StreamMS should hold the MS_Key and give me the starting address
-
 	for i := start_idx; i <= end_idx; i++ {
 		curr_str := "*2\r\n" + resp_bulk_string(entry.streams[i].id) + encode_list(entry.streams[i].items)
 		result = result + curr_str
 		stream_count += 1
 	}
-	// handle for end_idx
+	// Handle for end_idx
 	value := fmt.Sprintf("*%d\r\n%s", stream_count, result)
 	final := "*2\r\n" + resp_bulk_string(key) + value
 	return final
 }
 
-func (server *Redis) handleINCR(args []string) string {
-	key := args[0]
+func HandleINCR(server *Redis, cmd Command) {
+	key := cmd.Args[1]
 	entry, ok := server.dict[key]
 	if !ok {
 		entry = Entry{val: "0"}
@@ -551,76 +505,83 @@ func (server *Redis) handleINCR(args []string) string {
 	}
 	int_val, err := strconv.Atoi(entry.val)
 	if err != nil {
-		return simple_err("value is not an integer or out of range")
+		cmd.Client.WriteErr("value is not an integer or out of range")
 	}
 	entry.val = strconv.Itoa(int_val + 1)
 	server.dict[key] = entry
-	return resp_int(int_val + 1)
+	cmd.Client.WriteInt(int_val + 1)
 }
-func (server *Redis) handleMULTI(client *Client) string {
+
+func HandleMULTI(server *Redis, cmd Command) {
+	client := cmd.Client
 	client.queue = true
-	return "+OK\r\n"
+	cmd.Client.WriteStatus("OK")
 }
-func (server *Redis) handleDISCARD(client *Client) string {
+
+func HandleDISCARD(server *Redis, cmd Command) {
+	client := cmd.Client
 	if !client.queue {
-		return simple_err("DISCARD without MULTI")
+		cmd.Client.WriteErr("DISCARD without MULTI")
 	}
 	client.queue = false
 	client.commands = [][]string{}
-	return "+OK\r\n"
+	cmd.Client.WriteStatus("OK")
 }
 
-func (server *Redis) handleEXEC(conn net.Conn, client *Client) string {
+func HandleEXEC(server *Redis, cmd Command) {
+	client := cmd.Client
 	if !client.queue {
-		return simple_err("EXEC without MULTI")
+		cmd.Client.WriteErr("EXEC without MULTI")
 	}
 	client.queue = false
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("*%d\r\n", len(client.commands)))
+	cmd.Client.WriteString(fmt.Sprintf("*%d\r\n", len(client.commands)))
 	for _, cmds := range client.commands {
-		b.WriteString(server.Execute(conn, client, cmds))
+		command := Command{Client: client, Args: cmds}
+		Execute(server, command)
 	}
 	client.commands = [][]string{}
-	return b.String()
 }
 
-func (server *Redis) handleINFO(info_key string) string {
+func HandleINFO(server *Redis, cmd Command) {
+	conn := cmd.Client.conn
+	info_key := cmd.Args[1]
 	section_info, exists := server.info[info_key]
-	if exists {
-		var b strings.Builder
-		for key, val := range section_info {
-			st := fmt.Sprintf("%s:%s\r\n", key, val)
-			b.WriteString(st)
-		}
-		res := b.String()
-		return resp_bulk_string(res[:len(res)-2])
+	if !exists {
+		conn.Write([]byte(simple_err("Key doesn't exist")))
 	}
-
-	return simple_err("Key doesn't exist")
+	var b strings.Builder
+	for key, val := range section_info {
+		st := fmt.Sprintf("%s:%s\r\n", key, val)
+		b.WriteString(st)
+	}
+	res := b.String()
+	cmd.Client.WriteBulkString(res[:len(res)-2])
 }
 
-func (server *Redis) handleREPLCONF(conn net.Conn, args []string) {
+func HandleREPLCONF(server *Redis, cmd Command) {
 	slave_exists := func(server *Redis, conn net.Conn) bool {
 		for _, c := range server.slaves {
-			if c == conn { // interface pointer equality
+			if c == conn {
 				return true
 			}
 		}
 		return false
 	}
-	cmd := strings.ToUpper(args[0])
-	if cmd == "LISTENING-PORT" {
+	cmdName := strings.ToUpper(cmd.Args[1])
+	client := cmd.Client
+	conn := client.conn
+	if cmdName == "LISTENING-PORT" {
 		if slave_exists(server, conn) {
 			conn.Write([]byte("+OK\r\n"))
 			return
 		}
 		// otherwise add
 		server.slaves = append(server.slaves, conn)
-		conn.Write([]byte("+OK\r\n"))
+		cmd.Client.WriteStatus("OK")
 		return
 	}
-	if cmd == "ACK" {
-		offset, err := strconv.Atoi(args[1])
+	if cmdName == "ACK" {
+		offset, err := strconv.Atoi(cmd.Args[2])
 		if err != nil {
 			log.Fatalf("Error parsing integer %v", err)
 		}
@@ -636,27 +597,25 @@ func (server *Redis) handleREPLCONF(conn net.Conn, args []string) {
 		}
 		return
 	}
-	//capa psync2
-	conn.Write([]byte("+OK\r\n"))
+	cmd.Client.WriteStatus("OK")
 }
 
-func (server *Redis) handlePSYNC(conn net.Conn, args []string) {
+func HandlePSYNC(server *Redis, cmd Command) {
+	args := cmd.Args[1:]
 	if args[1] == "?" {
 		args[1] = server.id
 	}
 	if args[2] == "-1" {
 		args[2] = "0"
 	}
-	resp := fmt.Sprintf("+FULLRESYNC %s %s\r\n", args[1], args[2])
-	_, err := conn.Write([]byte(resp))
-	if err != nil {
-		log.Printf("err writing to the file: %v\n", err.Error())
-		return
-	}
-	server.writeFile(conn)
+	resp := fmt.Sprintf("FULLRESYNC %s %s", args[1], args[2])
+	cmd.Client.WriteStatus(resp)
+	server.writeFile(cmd.Client.conn)
 }
 
-func (server *Redis) handleWAIT(conn net.Conn, args []string) {
+func HandleWAIT(server *Redis, cmd Command) {
+	args := cmd.Args[1:]
+	conn := cmd.Client.conn
 	replicas, _ := strconv.Atoi(args[0])
 	wait_offset := server.master_offset
 	count := server.slave_sync_count(wait_offset)
@@ -692,75 +651,75 @@ func (server *Redis) handleWAIT(conn net.Conn, args []string) {
 	}
 }
 
-func (server *Redis) Execute(conn net.Conn, client *Client, args []string) string {
-	cmd := strings.ToUpper(args[0])
-	switch cmd {
+func Execute(server *Redis, cmd Command) {
+	cmdName := strings.ToUpper(cmd.Args[0])
+	switch cmdName {
 	case "ECHO":
-		return server.handleECHO(args[1])
+		HandleECHO(server, cmd)
 	case "PING":
-		return server.handlePING()
+		HandlePING(server, cmd)
 	case "SET":
-		return server.handleSET(args[1:])
+		HandleSET(server, cmd)
 	case "GET":
-		return server.handleGET(args[1])
+		HandleGET(server, cmd)
 	case "RPUSH":
-		return server.handleRPUSH(args[1:])
+		HandleRPUSH(server, cmd)
 	case "LPUSH":
-		return server.handleLPUSH(args[1:])
+		HandleLPUSH(server, cmd)
 	case "LRANGE":
-		return server.handleLRANGE(args[1:])
+		HandleLRANGE(server, cmd)
 	case "LLEN":
-		return server.handleLLEN(args[1])
+		HandleLLEN(server, cmd)
 	case "LPOP":
-		return server.handleLPOP(args[1:])
+		HandleLPOP(server, cmd)
 	case "BLPOP":
-		return server.handleBLPOP(args[1:])
+		HandleBLPOP(server, cmd)
 	case "TYPE":
-		return server.handleTYPE(args[1:])
+		HandleTYPE(server, cmd)
 	case "XADD":
-		return server.handleXADD(args[1:])
+		HandleXADD(server, cmd)
 	case "XRANGE":
-		return server.handleXRANGE(args[1:])
+		HandleXRANGE(server, cmd)
 	case "XREAD":
-		if strings.ToUpper(args[1]) == "BLOCK" {
-			return server.handleXREADBLOCK(args[2:])
+		if strings.ToUpper(cmd.Args[1]) == "BLOCK" {
+			HandleXREADBLOCK(server, cmd)
 		} else {
-			return server.handleXREAD(args[2:])
+			HandleXREAD(server, cmd)
 		}
 	case "INCR":
-		return server.handleINCR(args[1:])
+		HandleINCR(server, cmd)
 	case "MULTI":
-		return server.handleMULTI(client)
+		HandleMULTI(server, cmd)
 	case "DISCARD":
-		return server.handleDISCARD(client)
+		HandleDISCARD(server, cmd)
 	case "EXEC":
-		return server.handleEXEC(conn, client)
+		HandleEXEC(server, cmd)
 	case "INFO":
-		return server.handleINFO(args[1])
+		HandleINFO(server, cmd)
 	case "CONFIG":
-		return server.handleCONFIG(args[1:])
+		HandleCONFIG(server, cmd)
 	case "KEYS":
-		return server.handleKEYS()
+		HandleKEYS(server, cmd)
 	default:
-		return "-ERR \r\n"
+		cmd.Client.WriteErr("Unrecognized command")
 	}
 }
 
-func (server *Redis) handleCONFIG(args []string) string {
-	cmd := args[0]
+func HandleCONFIG(server *Redis, cmd Command) {
+	args := cmd.Args[1:]
 	key := args[1]
-	switch cmd {
+	switch cmd.Args[0] {
 	case "GET":
 		if key == "dir" {
-			return encode_list([]string{"dir", server.rdb_dir})
+			cmd.Client.WriteList([]string{"dir", server.rdb_dir})
 		}
 		if key == "dbfilename" {
-			return encode_list([]string{"dir", server.dbfilename})
+			cmd.Client.WriteList([]string{"dir", server.dbfilename})
 		}
 	default:
-		return NULL_ARRAY
+		cmd.Client.WriteNil()
 	}
-	return NULL_ARRAY
+	cmd.Client.WriteNil()
 
 }
 func (server *Redis) writeFile(conn net.Conn) {
@@ -783,23 +742,28 @@ func (server *Redis) writeFile(conn net.Conn) {
 	}
 }
 
-func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) {
+func (server *Redis) HandleReplConnection(conn net.Conn, handshake chan string) {
 	defer conn.Close()
 	client := &Client{}
 	offset := 0
 	reader := bufio.NewReader(conn)
 	for {
 		ch, err := reader.ReadByte()
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			log.Fatal("Erorr reading from the conn\n")
+		if err != nil {
+			if err == io.EOF {
+				log.Println("Master closed the connection")
+			} else {
+				log.Printf("Connection error: %v\n", err)
+			}
+			return
 		}
+
 		switch ch {
 		case '+':
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				log.Println("Error reading the response")
+				return
 			}
 			line = strings.TrimSpace(line)
 			if line == "PONG" {
@@ -816,118 +780,116 @@ func (server *Redis) handleReplConnection(conn net.Conn, handshake chan string) 
 			line = strings.TrimSuffix(line, "\r\n")
 			rdb_size, err := strconv.Atoi(line)
 			if err != nil {
-				log.Fatalf("Unable to parse rdb size")
+				log.Printf("Invalid RDB size: %v\n", err)
+				continue
 			}
 			buf := make([]byte, rdb_size)
 			_, err = io.ReadFull(reader, buf)
 			if err != nil {
-				log.Fatalf("Error reading rdb file")
+				log.Printf("Failed to read full RDB: %v\n", err)
+				return
 			}
 		case '*':
 			// propagation commands
 			line, err := reader.ReadString('\n')
+			if err != nil {
+				log.Printf("Error reading array size: %v\n", err)
+				return
+			}
 			line = strings.TrimSuffix(line, "\r\n")
 			arr_size, err := strconv.Atoi(line[:])
 			if err != nil {
-				log.Fatalf("Error parsing integer value: %v", err.Error())
+				log.Printf("Protocol error: invalid array size %s\n", line)
+				return
 			}
 			// resp arr
-			args := parse_resp_arr(reader, arr_size)
-			if len(args) == 0 {
-				log.Fatalf("Args not provided")
+			args, err := parse_resp_arr(reader, arr_size)
+			if err != nil {
+				log.Printf("Error parsing RESP array: %v\n", err)
+				return
 			}
+			cmdRaw := encode_list(args)
+			curr_length := len(cmdRaw)
+
 			cmd := strings.ToUpper(args[0])
-			curr_length := len(encode_list(args))
-			if cmd == "REPLCONF" && strings.ToUpper(args[1]) == "GETACK" {
+			if cmd == "REPLCONF" && len(args) > 1 && strings.ToUpper(args[1]) == "GETACK" {
 				resp := encode_list([]string{"REPLCONF", "ACK", strconv.Itoa(offset)})
 				conn.Write([]byte(resp))
 			} else if cmd != "DISCARD" && cmd != "EXEC" && client.queue {
 				client.commands = append(client.commands, args)
 			} else {
-				server.Execute(conn, client, args)
+				command := Command{Client: client, Args: args}
+				Execute(server, command)
 			}
 			offset = offset + curr_length
 		}
 	}
 }
 
-func (server *Redis) handleConnection(conn net.Conn) {
-	client := &Client{conn: conn, topics: make(map[string]*Topic)}
-	defer conn.Close()
-	reader := bufio.NewReader(conn)
+func (server *Redis) HandleConnection(conn net.Conn) {
+	client := NewClient(conn)
+	defer client.Close()
+	reader := NewRespReader(conn)
 	nopass_checked := false
 	var nopass = false
 	for {
-		line, err := reader.ReadString('\n')
+		args, err := reader.ReadCommand()
 		if err != nil {
+			log.Printf("error reading from the connection: %v", err)
 			continue
 		}
-		if line[0] == '$' {
-			log.Fatal("Should be bulk array")
-			continue
-		}
-		line = strings.TrimSuffix(line, "\r\n")
-		arr_size, err := strconv.Atoi(line[1:])
-		if err != nil {
-			log.Fatalf("Error parsing integer value: %v\n", err.Error())
-		}
-		// resp arr
-		args := parse_resp_arr(reader, arr_size)
-		if len(args) == 0 {
-			log.Fatalf("Args not provided")
-		}
-		cmd := strings.ToUpper(args[0])
-		resp := ""
-
 		if client.user == nil {
 			client.user = server.users["default"]
 		}
+
 		if !nopass_checked {
 			nopass = client.user.nopass()
 			nopass_checked = true
 		}
+
+		cmd := strings.ToUpper(args[0])
 		if !nopass && !client.auth && cmd != "AUTH" {
 			resp := "-NOAUTH Authentication required\r\n"
 			client.conn.Write([]byte(resp))
 			continue
 		}
 
-		if client.subscribed || in_subscription_mode(client, cmd) {
-			server.handleSubscription(client, args)
+		command := Command{
+			Client: client,
+			Args:   args,
+		}
+
+		if in_subscription_mode(command) {
+			HandleSubscription(server, command)
 			continue
 		}
-		if is_acl_cmd(cmd) {
-			server.handleACL(client, args)
+		if is_acl_cmd(command) {
+			HandleACL(server, command)
 			continue
 		}
-		if is_geo_cmd(cmd) {
-			server.handleGeo(client, args)
+		if is_geo_cmd(command) {
+			HandleGeo(server, command)
 			continue
 		}
-		if is_set_cmd(cmd) {
-			server.handleZset(client, args)
+		if is_set_cmd(command) {
+			HandleZset(server, command)
 			continue
 		}
 		if cmd == "WAIT" {
-			server.handleWAIT(conn, args[1:])
+			HandleWAIT(server, command)
 			continue
 		}
 		if cmd == "REPLCONF" {
-			server.handleREPLCONF(conn, args[1:])
+			HandleREPLCONF(server, command)
 			continue
 		} else if cmd == "PSYNC" {
-			server.handlePSYNC(conn, args)
+			HandlePSYNC(server, command)
 			continue
 		} else if cmd != "DISCARD" && cmd != "EXEC" && client.queue {
 			client.commands = append(client.commands, args)
-			resp = "+QUEUED\r\n"
+			command.Client.WriteStatus("QUEUED")
 		} else {
-			resp = server.Execute(conn, client, args)
-		}
-		_, err = conn.Write([]byte(resp))
-		if err != nil {
-			fmt.Println("Error writing to connection: ", err.Error())
-			continue
+			Execute(server, command)
 		}
 		server.write_slaves(cmd, []byte(encode_list(args)))
 	}
@@ -948,7 +910,7 @@ func main() {
 	server := NewRedis(redis_config)
 
 	address := fmt.Sprintf("0.0.0.0:%d", redis_config.port)
-	l, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", redis_config.port))
+	l, err := net.Listen("tcp", address)
 	if err != nil {
 		log.Printf("Failed to bind to port %d\n", port)
 		os.Exit(1)
@@ -957,9 +919,8 @@ func main() {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			log.Println("Error accepting connection: ", err.Error())
-			os.Exit(1)
+			log.Fatalf("Error accepting connection: %v", err)
 		}
-		go server.handleConnection(conn)
+		go server.HandleConnection(conn)
 	}
 }

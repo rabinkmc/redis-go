@@ -95,21 +95,27 @@ func hsDist(p1, p2 pos_radian) float64 {
 		math.Cos(p1.lat)*math.Cos(p2.lat)*haversine(p2.long-p1.long)))
 }
 
-func (server *Redis) handleGEOADD(client *Client, args []string) {
-	key := args[0]
-	longitude, err := strconv.ParseFloat(args[1], 64)
+func HandleGEOADD(server *Redis, cmd Command) {
+	if len(cmd.Args) < 5 {
+		cmd.Client.WriteErr("Invalid usage: GEOADD key long lat member")
+		return
+	}
+
+	client := cmd.Client
+	key := cmd.Args[1]
+	longitude, err := strconv.ParseFloat(cmd.Args[2], 64)
 	if err != nil {
 		resp := simple_err(
-			fmt.Sprintf("failed to parse '%s' to float", args[1]),
+			fmt.Sprintf("failed to parse '%s' to float", cmd.Args[2]),
 		)
 
 		client.conn.Write([]byte(resp))
 		return
 	}
-	latitude, err := strconv.ParseFloat(args[2], 64)
+	latitude, err := strconv.ParseFloat(cmd.Args[3], 64)
 	if err != nil {
 		resp := simple_err(
-			fmt.Sprintf("failed to parse '%s' to float", args[2]),
+			fmt.Sprintf("failed to parse '%s' to float", cmd.Args[3]),
 		)
 
 		client.conn.Write([]byte(resp))
@@ -117,7 +123,7 @@ func (server *Redis) handleGEOADD(client *Client, args []string) {
 	}
 	if !valid_latitude(latitude) || !valid_longitude(longitude) {
 		resp := simple_err(
-			fmt.Sprintf("invalid latitude, longitude pair %s,%s", args[1], args[2]),
+			fmt.Sprintf("invalid latitude, longitude pair %s,%s", cmd.Args[2], cmd.Args[3]),
 		)
 		client.conn.Write([]byte(resp))
 		return
@@ -125,12 +131,22 @@ func (server *Redis) handleGEOADD(client *Client, args []string) {
 
 	score := encode_pos(latitude, longitude)
 	score_str := strconv.FormatUint(score, 10)
-	member := args[3]
-	server.handleZADD(client, []string{key, score_str, member})
+	member := cmd.Args[4]
+	command := Command{
+		Client: client,
+		Args:   []string{"ZADD", key, score_str, member},
+	}
+	HandleZADD(server, command)
 }
-func (server *Redis) handleGEOPOS(client *Client, args []string) {
-	key := args[0]
-	places := args[1:]
+
+func HandleGEOPOS(server *Redis, cmd Command) {
+	if len(cmd.Args) < 3 {
+		cmd.Client.WriteErr("Invalid usage: GEOPOS key place1 [place...]")
+		return
+	}
+	client := cmd.Client
+	key := cmd.Args[1]
+	places := cmd.Args[2:]
 	entry, _ := server.dict[key]
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("*%d\r\n", len(places)))
@@ -152,61 +168,57 @@ func (server *Redis) handleGEOPOS(client *Client, args []string) {
 		}))
 	}
 	client.conn.Write([]byte(b.String()))
-
 }
 
-func (server *Redis) handleGEODIST(client *Client, args []string) {
-	key := args[0]
-	place1 := args[1]
-	place2 := args[2]
+func HandleGEODIST(server *Redis, cmd Command) {
+	if len(cmd.Args) < 4 {
+		cmd.Client.WriteErr("Invalid usage: GEODIST key place1 place2")
+		return
+	}
+	key := cmd.Args[1]
+	place1 := cmd.Args[2]
+	place2 := cmd.Args[3]
 	entry, _ := server.dict[key]
 	if len(entry.zset) == 0 {
-		client.conn.Write([]byte(simple_err("No place found")))
+		cmd.Client.WriteErr("No place found")
 		return
 	}
 	id1 := entry.find_znode(place1)
 	if id1 == -1 {
-		err_str := fmt.Sprintf("'%s' not found", place1)
-		client.conn.Write([]byte(simple_err(err_str)))
+		cmd.Client.WriteErr(fmt.Sprintf("'%s' not found", place1))
 		return
 	}
 
 	id2 := entry.find_znode(place2)
 	if id2 == -1 {
-		err_str := fmt.Sprintf("'%s' not found", place2)
-		client.conn.Write([]byte(simple_err(err_str)))
+		cmd.Client.WriteErr(fmt.Sprintf("'%s' not found", place2))
 		return
 	}
 	lat1, long1 := decode_geocode(uint64(entry.zset[id1].score))
 	lat2, long2 := decode_geocode(uint64(entry.zset[id2].score))
 	dist := hsDist(deg_to_radian(lat1, long1), deg_to_radian(lat2, long2))
 	resp := strconv.FormatFloat(dist, 'f', -1, 64)
-	client.conn.Write([]byte(resp_bulk_string(resp)))
+	cmd.Client.WriteBulkString(resp)
 }
 
-func (server *Redis) handleGEOSEARCH(client *Client, args []string) {
-	key := args[0]
+func HandleGEOSEARCH(server *Redis, cmd Command) {
+	client := cmd.Client
+	key := cmd.Args[1]
 	// args[1] => FROMLONLAT
-	longitude, err := strconv.ParseFloat(args[2], 64)
+	longitude, err := strconv.ParseFloat(cmd.Args[2], 64)
 	if err != nil {
-		resp := simple_err(
-			fmt.Sprintf("failed to parse '%s' to float", args[1]),
-		)
-
-		client.conn.Write([]byte(resp))
+		resp := fmt.Sprintf("failed to parse '%s' to float", cmd.Args[2])
+		cmd.Client.WriteErr(resp)
 		return
 	}
-	latitude, err := strconv.ParseFloat(args[3], 64)
+	latitude, err := strconv.ParseFloat(cmd.Args[3], 64)
 	if err != nil {
-		resp := simple_err(
-			fmt.Sprintf("failed to parse '%s' to float", args[2]),
-		)
-
-		client.conn.Write([]byte(resp))
+		resp := fmt.Sprintf("failed to parse '%s' to float", cmd.Args[3])
+		cmd.Client.WriteErr(resp)
 		return
 	}
 	// args[4] BYRADIUS
-	within, err := strconv.ParseFloat(args[5], 64)
+	within, err := strconv.ParseFloat(cmd.Args[4], 64)
 	// args[6] unit will be m for us
 	entry, _ := server.dict[key]
 	if len(entry.zset) == 0 {
@@ -223,30 +235,31 @@ func (server *Redis) handleGEOSEARCH(client *Client, args []string) {
 		}
 	}
 	client.conn.Write([]byte(encode_list(res)))
-
 }
 
-func is_geo_cmd(cmd string) bool {
+func is_geo_cmd(cmd Command) bool {
+	cmdName := cmd.Args[0]
 	commands := []string{"GEOADD", "GEOPOS", "GEODIST", "GEOSEARCH"}
 	for _, command := range commands {
-		if command == cmd {
+		if command == cmdName {
 			return true
 		}
 	}
 	return false
 }
-func (server *Redis) handleGeo(client *Client, args []string) {
-	cmd := strings.ToUpper(args[0])
-	switch cmd {
+
+func HandleGeo(server *Redis, cmd Command) {
+	cmdName := strings.ToUpper(cmd.Args[0])
+	switch cmdName {
 	case "GEOADD":
-		server.handleGEOADD(client, args[1:])
+		HandleGEOADD(server, cmd)
 	case "GEOPOS":
-		server.handleGEOPOS(client, args[1:])
+		HandleGEOPOS(server, cmd)
 	case "GEODIST":
-		server.handleGEODIST(client, args[1:])
+		HandleGEODIST(server, cmd)
 	case "GEOSEARCH":
-		server.handleGEOSEARCH(client, args[1:])
+		HandleGEOSEARCH(server, cmd)
 	default:
-		client.conn.Write([]byte(simple_err("shouldn't be here in geo")))
+		cmd.Client.WriteErr("Invalid geo command")
 	}
 }

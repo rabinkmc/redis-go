@@ -147,7 +147,7 @@ func (server *Redis) readRDB() {
 	server.rdb_read_status = true
 }
 
-func (server *Redis) handleKEYS() string {
+func HandleKEYS(server *Redis, cmd Command) string {
 	server.readRDB()
 	res := []string{}
 	for key := range server.dict {

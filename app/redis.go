@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+type Command struct {
+	Client *Client
+	Args   []string
+}
+
 type RedisConfig struct {
 	port       int
 	replicaof  string
@@ -76,16 +81,7 @@ type Redis struct {
 	rdb_read_status bool
 	pubsub          map[string]*Topic
 	users           map[string]*User
-}
-
-type Client struct {
-	conn       net.Conn
-	topics     map[string]*Topic
-	commands   [][]string
-	queue      bool
-	subscribed bool
-	user       *User
-	auth       bool
+	commandCh       chan Command
 }
 
 func NewRedis(redis_config RedisConfig) *Redis {
@@ -108,6 +104,7 @@ func NewRedis(redis_config RedisConfig) *Redis {
 		ack_slaves:     make(map[net.Conn]int),
 		pubsub:         make(map[string]*Topic),
 		users:          make(map[string]*User),
+		commandCh:      make(chan Command, 1024),
 	}
 
 	redis.users["default"] = &User{

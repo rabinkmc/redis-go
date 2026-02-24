@@ -29,8 +29,12 @@ func encode_sublist(strs []string, topic_size int) string {
 	return result + resp_int(topic_size)
 }
 
-func in_subscription_mode(client *Client, cmd string) bool {
-	if client.subscribed && cmd == "PING" {
+func in_subscription_mode(cmd Command) bool {
+	if cmd.Client.subscribed {
+		return true
+	}
+	cmdName := cmd.Args[0]
+	if cmd.Client.subscribed && cmdName == "PING" {
 		return true
 	}
 	allowed_cmds := []string{
@@ -40,15 +44,16 @@ func in_subscription_mode(client *Client, cmd string) bool {
 		"QUIT",
 	}
 	for _, allowed_cmd := range allowed_cmds {
-		if cmd == allowed_cmd {
+		if cmdName == allowed_cmd {
 			return true
 		}
 	}
 	return false
 }
 
-func (server *Redis) handleSUBSCRIBE(client *Client, args []string) {
-	topic_str := args[0]
+func handleSUBSCRIBE(server *Redis, cmd Command) {
+	client := cmd.Client
+	topic_str := cmd.Args[1]
 	topic, ok := server.pubsub[topic_str]
 	if !ok {
 		topic = &Topic{
@@ -59,7 +64,7 @@ func (server *Redis) handleSUBSCRIBE(client *Client, args []string) {
 		}
 		server.pubsub[topic_str] = topic
 		client.topics[topic_str] = topic
-		go server.handlePubsub(topic)
+		go handlePubsub(server, topic)
 	}
 
 	select {
@@ -67,8 +72,9 @@ func (server *Redis) handleSUBSCRIBE(client *Client, args []string) {
 	}
 }
 
-func (server *Redis) handleUNSUBSCRIBE(client *Client, args []string) {
-	topic_str := args[0]
+func handleUNSUBSCRIBE(server *Redis, cmd Command) {
+	topic_str := cmd.Args[1]
+	client := cmd.Client
 	topic, ok := server.pubsub[topic_str]
 	if !ok {
 		return
@@ -77,7 +83,9 @@ func (server *Redis) handleUNSUBSCRIBE(client *Client, args []string) {
 	case topic.unsubscribe <- client:
 	}
 }
-func (server *Redis) handlePUBLISH(client *Client, args []string) {
+func handlePUBLISH(server *Redis, cmd Command) {
+	args := cmd.Args[1:]
+	client := cmd.Client
 	topic_str := args[0]
 	topic, ok := server.pubsub[topic_str]
 	if !ok {
@@ -89,7 +97,7 @@ func (server *Redis) handlePUBLISH(client *Client, args []string) {
 	}
 }
 
-func (server *Redis) handlePubsub(topic *Topic) {
+func handlePubsub(server *Redis, topic *Topic) {
 	name := topic.name
 	for {
 		select {
@@ -130,17 +138,20 @@ func (server *Redis) handlePubsub(topic *Topic) {
 
 }
 
-func (server *Redis) handleSubscription(client *Client, args []string) {
-	cmd := strings.ToUpper(args[0])
-	switch cmd {
+func handleSubscription(server *Redis, cmd Command) {
+	args := cmd.Args[1:]
+	client := cmd.Client
+
+	cmdName := strings.ToUpper(args[0])
+	switch cmdName {
 	case "PING":
 		client.conn.Write([]byte(encode_list([]string{"pong", ""})))
 	case "SUBSCRIBE":
-		server.handleSUBSCRIBE(client, args[1:])
+		handleSUBSCRIBE(server, cmd)
 	case "UNSUBSCRIBE":
-		server.handleUNSUBSCRIBE(client, args[1:])
+		handleUNSUBSCRIBE(server, cmd)
 	case "PUBLISH":
-		server.handlePUBLISH(client, args[1:])
+		handlePUBLISH(server, cmd)
 	default:
 		resp_err := simple_err(fmt.Sprintf("Can't execute '%s'", cmd))
 		client.conn.Write([]byte(resp_err))

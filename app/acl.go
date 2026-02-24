@@ -7,12 +7,14 @@ import (
 	"strings"
 )
 
-func (server *Redis) handleWHOAMI(client *Client, args []string) {
+func HandleWHOAMI(server *Redis, cmd Command) {
+	client := cmd.Client
 	client.conn.Write([]byte(resp_bulk_string("default")))
 }
 
-func (server *Redis) handleGETUSER(client *Client, args []string) {
-	username := args[0]
+func HandleGETUSER(server *Redis, cmd Command) {
+	client := cmd.Client
+	username := cmd.Args[0]
 	user, _ := server.users[username]
 	if user == nil {
 		resp := fmt.Sprintf("No user exists with username '%s'", username)
@@ -48,7 +50,9 @@ func get_hash(pass string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func (server *Redis) handleSETUSER(client *Client, args []string) {
+func HandleSETUSER(server *Redis, cmd Command) {
+	args := cmd.Args[1:]
+	client := cmd.Client
 	username := args[0]
 	user, _ := server.users[username]
 
@@ -62,7 +66,9 @@ func (server *Redis) handleSETUSER(client *Client, args []string) {
 	client.conn.Write([]byte("+OK\r\n"))
 }
 
-func (server *Redis) handleAUTH(client *Client, args []string) {
+func HandleAUTH(server *Redis, cmd Command) {
+	args := cmd.Args[1:]
+	client := cmd.Client
 	username := args[0]
 	password := args[1]
 	user, _ := server.users[username]
@@ -82,22 +88,24 @@ func (server *Redis) handleAUTH(client *Client, args []string) {
 	}
 }
 
-func is_acl_cmd(cmd string) bool {
-	return cmd == "ACL" || cmd == "AUTH"
+func is_acl_cmd(cmd Command) bool {
+	cmdName := cmd.Args[0]
+	return cmdName == "ACL" || cmdName == "AUTH"
 }
-func (server *Redis) handleACL(client *Client, args []string) {
+func HandleACL(server *Redis, cmd Command) {
+	args := cmd.Args[1:]
 	subcmd := strings.ToUpper(args[1])
-	cmd := strings.ToUpper(args[0])
-
+	cmdName := strings.ToUpper(args[0])
+	client := cmd.Client
 	switch {
 	case subcmd == "WHOAMI":
-		server.handleWHOAMI(client, args[2:])
+		HandleWHOAMI(server, cmd)
 	case subcmd == "GETUSER":
-		server.handleGETUSER(client, args[2:])
+		HandleGETUSER(server, cmd)
 	case subcmd == "SETUSER":
-		server.handleSETUSER(client, args[2:])
-	case cmd == "AUTH":
-		server.handleAUTH(client, args[1:])
+		HandleSETUSER(server, cmd)
+	case cmdName == "AUTH":
+		HandleAUTH(server, cmd)
 	default:
 		client.conn.Write([]byte(simple_err("shouldn't be here in acl")))
 	}
