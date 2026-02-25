@@ -96,6 +96,8 @@ func hsDist(p1, p2 pos_radian) float64 {
 }
 
 func HandleGEOADD(server *Redis, cmd Command) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	if len(cmd.Args) < 5 {
 		cmd.Client.WriteErr("Invalid usage: GEOADD key long lat member")
 		return
@@ -130,16 +132,19 @@ func HandleGEOADD(server *Redis, cmd Command) {
 	}
 
 	score := encode_pos(latitude, longitude)
-	score_str := strconv.FormatUint(score, 10)
 	member := cmd.Args[4]
-	command := Command{
-		Client: client,
-		Args:   []string{"ZADD", key, score_str, member},
-	}
-	HandleZADD(server, command)
+	entry := server.dict[key]
+	entry.add_znode(Znode{
+		member: member,
+		score:  float64(score),
+	})
+	server.dict[key] = entry
+	cmd.Client.WriteInt(1)
 }
 
 func HandleGEOPOS(server *Redis, cmd Command) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	if len(cmd.Args) < 3 {
 		cmd.Client.WriteErr("Invalid usage: GEOPOS key place1 [place...]")
 		return
@@ -171,6 +176,8 @@ func HandleGEOPOS(server *Redis, cmd Command) {
 }
 
 func HandleGEODIST(server *Redis, cmd Command) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	if len(cmd.Args) < 4 {
 		cmd.Client.WriteErr("Invalid usage: GEODIST key place1 place2")
 		return
@@ -202,6 +209,8 @@ func HandleGEODIST(server *Redis, cmd Command) {
 }
 
 func HandleGEOSEARCH(server *Redis, cmd Command) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	client := cmd.Client
 	key := cmd.Args[1]
 	// args[1] => FROMLONLAT
@@ -235,31 +244,4 @@ func HandleGEOSEARCH(server *Redis, cmd Command) {
 		}
 	}
 	client.conn.Write([]byte(encode_list(res)))
-}
-
-func is_geo_cmd(cmd Command) bool {
-	cmdName := cmd.Args[0]
-	commands := []string{"GEOADD", "GEOPOS", "GEODIST", "GEOSEARCH"}
-	for _, command := range commands {
-		if command == cmdName {
-			return true
-		}
-	}
-	return false
-}
-
-func HandleGeo(server *Redis, cmd Command) {
-	cmdName := strings.ToUpper(cmd.Args[0])
-	switch cmdName {
-	case "GEOADD":
-		HandleGEOADD(server, cmd)
-	case "GEOPOS":
-		HandleGEOPOS(server, cmd)
-	case "GEODIST":
-		HandleGEODIST(server, cmd)
-	case "GEOSEARCH":
-		HandleGEOSEARCH(server, cmd)
-	default:
-		cmd.Client.WriteErr("Invalid geo command")
-	}
 }

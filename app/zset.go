@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 )
 
 func (entry *Entry) find_znode(member string) int {
@@ -43,6 +42,8 @@ func (entry *Entry) add_znode(item Znode) int {
 }
 
 func HandleZADD(server *Redis, cmd Command) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	if len(cmd.Args) < 4 {
 		cmd.Client.WriteErr("Invalid usage: ZADD key score member")
 		return
@@ -65,6 +66,9 @@ func HandleZADD(server *Redis, cmd Command) {
 }
 
 func HandleZRANK(server *Redis, cmd Command) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
 	if len(cmd.Args) < 3 {
 		cmd.Client.WriteErr("Invalid usage: ZRANK key member")
 		return
@@ -84,6 +88,9 @@ func HandleZRANK(server *Redis, cmd Command) {
 }
 
 func HandleZRANGE(server *Redis, cmd Command) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
 	if len(cmd.Args) < 4 {
 		cmd.Client.WriteErr("Invaid usage: ZRANGE key start end")
 	}
@@ -123,6 +130,9 @@ func HandleZRANGE(server *Redis, cmd Command) {
 }
 
 func HandleZCARD(server *Redis, cmd Command) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
 	if len(cmd.Args) < 2 {
 		cmd.Client.WriteErr("Invalid usage:\nZCARD key")
 		return
@@ -133,6 +143,9 @@ func HandleZCARD(server *Redis, cmd Command) {
 }
 
 func HandleZSCORE(server *Redis, cmd Command) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
 	if len(cmd.Args) < 3 {
 		cmd.Client.WriteErr("Invalid usage:\nZSCORE key member")
 		return
@@ -153,6 +166,9 @@ func HandleZSCORE(server *Redis, cmd Command) {
 }
 
 func HandleZREM(server *Redis, cmd Command) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
 	key := cmd.Args[1]
 	if len(cmd.Args) < 3 {
 		cmd.Client.WriteErr("Invalid usage: ZRANK key member")
@@ -179,34 +195,4 @@ func HandleZREM(server *Redis, cmd Command) {
 	entry.zset = items
 	server.dict[key] = entry
 	cmd.Client.WriteInt(1)
-}
-
-func is_set_cmd(cmd Command) bool {
-	cmdName := cmd.Args[0]
-	commands := []string{"ZADD", "ZRANK", "ZRANGE", "ZCARD", "ZSCORE", "ZREM"}
-	for _, command := range commands {
-		if command == cmdName {
-			return true
-		}
-	}
-	return false
-}
-
-func HandleZset(server *Redis, cmd Command) {
-	args := cmd.Args
-	cmdName := strings.ToUpper(args[0])
-	switch cmdName {
-	case "ZADD":
-		HandleZADD(server, cmd)
-	case "ZRANK":
-		HandleZRANK(server, cmd)
-	case "ZRANGE":
-		HandleZRANGE(server, cmd)
-	case "ZCARD":
-		HandleZCARD(server, cmd)
-	case "ZSCORE":
-		HandleZSCORE(server, cmd)
-	case "ZREM":
-		HandleZREM(server, cmd)
-	}
 }

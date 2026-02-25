@@ -33,16 +33,19 @@ func in_subscription_mode(cmd Command) bool {
 	if cmd.Client.subscribed {
 		return true
 	}
+
 	cmdName := cmd.Args[0]
 	if cmd.Client.subscribed && cmdName == "PING" {
 		return true
 	}
+
 	allowed_cmds := []string{
 		"SUBSCRIBE", "PSUBSCRIBE",
 		"UNSUBSCRIBE", "PUNSUBSCRIBE",
 		"PUBLISH",
 		"QUIT",
 	}
+
 	for _, allowed_cmd := range allowed_cmds {
 		if cmdName == allowed_cmd {
 			return true
@@ -51,7 +54,8 @@ func in_subscription_mode(cmd Command) bool {
 	return false
 }
 
-func handleSUBSCRIBE(server *Redis, cmd Command) {
+func HandleSUBSCRIBE(server *Redis, cmd Command) {
+	server.mu.Lock()
 	client := cmd.Client
 	topic_str := cmd.Args[1]
 	topic, ok := server.pubsub[topic_str]
@@ -64,15 +68,16 @@ func handleSUBSCRIBE(server *Redis, cmd Command) {
 		}
 		server.pubsub[topic_str] = topic
 		client.topics[topic_str] = topic
-		go handlePubsub(server, topic)
+		go HandlePubsub(server, topic)
 	}
+	server.mu.Unlock()
 
-	select {
-	case topic.subscribe <- client:
-	}
+	topic.subscribe <- cmd.Client
 }
 
-func handleUNSUBSCRIBE(server *Redis, cmd Command) {
+func HandleUNSUBSCRIBE(server *Redis, cmd Command) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	topic_str := cmd.Args[1]
 	client := cmd.Client
 	topic, ok := server.pubsub[topic_str]
@@ -83,28 +88,30 @@ func handleUNSUBSCRIBE(server *Redis, cmd Command) {
 	case topic.unsubscribe <- client:
 	}
 }
-func handlePUBLISH(server *Redis, cmd Command) {
+func HandlePUBLISH(server *Redis, cmd Command) {
+	server.mu.Lock()
 	args := cmd.Args[1:]
 	client := cmd.Client
 	topic_str := args[0]
 	topic, ok := server.pubsub[topic_str]
+	server.mu.Unlock()
 	if !ok {
 		return
 	}
 	message := Message{client: client, text: args[1]}
-	select {
-	case topic.publish <- message:
-	}
+	topic.publish <- message
 }
 
-func handlePubsub(server *Redis, topic *Topic) {
+func HandlePubsub(server *Redis, topic *Topic) {
 	name := topic.name
 	for {
 		select {
 		case client := <-topic.subscribe:
+			server.mu.Lock()
 			topic.subscribers = append(topic.subscribers, client)
 			client.subscribed = true
 			client.topics[name], server.pubsub[name] = topic, topic
+			server.mu.Unlock()
 			response := encode_sublist(
 				[]string{"subscribe", name},
 				len(client.topics),
@@ -124,10 +131,12 @@ func handlePubsub(server *Redis, topic *Topic) {
 				}
 
 			}
+			server.mu.Lock()
 			topic.subscribers = newsubscribers
 			server.pubsub[name] = topic
 			client.subscribed = false
 			delete(client.topics, name)
+			server.mu.Unlock()
 			response := encode_sublist(
 				[]string{"unsubscribe", name},
 				len(client.topics),
@@ -135,10 +144,9 @@ func handlePubsub(server *Redis, topic *Topic) {
 			client.conn.Write([]byte(response))
 		}
 	}
-
 }
 
-func handleSubscription(server *Redis, cmd Command) {
+func HandleSubscription(server *Redis, cmd Command) {
 	args := cmd.Args[1:]
 	client := cmd.Client
 
@@ -147,14 +155,13 @@ func handleSubscription(server *Redis, cmd Command) {
 	case "PING":
 		client.conn.Write([]byte(encode_list([]string{"pong", ""})))
 	case "SUBSCRIBE":
-		handleSUBSCRIBE(server, cmd)
+		HandleSUBSCRIBE(server, cmd)
 	case "UNSUBSCRIBE":
-		handleUNSUBSCRIBE(server, cmd)
+		HandleUNSUBSCRIBE(server, cmd)
 	case "PUBLISH":
-		handlePUBLISH(server, cmd)
+		HandlePUBLISH(server, cmd)
 	default:
 		resp_err := simple_err(fmt.Sprintf("Can't execute '%s'", cmd))
 		client.conn.Write([]byte(resp_err))
 	}
-
 }

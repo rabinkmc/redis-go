@@ -63,7 +63,7 @@ type Redis struct {
 	id              string
 	port            int
 	dict            map[string]Entry
-	mu              sync.Mutex
+	mu              sync.RWMutex
 	waiters         map[string]chan string
 	stream_waiters  map[string]chan string
 	info            map[string]map[string]string
@@ -81,7 +81,6 @@ type Redis struct {
 	rdb_read_status bool
 	pubsub          map[string]*Topic
 	users           map[string]*User
-	commandCh       chan Command
 }
 
 func NewRedis(redis_config RedisConfig) *Redis {
@@ -104,7 +103,6 @@ func NewRedis(redis_config RedisConfig) *Redis {
 		ack_slaves:     make(map[net.Conn]int),
 		pubsub:         make(map[string]*Topic),
 		users:          make(map[string]*User),
-		commandCh:      make(chan Command, 1024),
 	}
 
 	redis.users["default"] = &User{
@@ -126,14 +124,22 @@ func NewRedis(redis_config RedisConfig) *Redis {
 			log.Fatalf("Unable to connect to the master: %v", err.Error())
 		}
 		handshake_ch := make(chan string)
-		go redis.handleReplConnection(conn, handshake_ch) // replica reads from this connection
+		go redis.HandleReplConnection(conn, handshake_ch) // replica reads from this connection
 		send_ping(conn)
 		<-handshake_ch
-		request1 := []string{"REPLCONF", "listening-port", fmt.Sprintf("%d", redis.port)}
-		send_replconf(conn, request1)
+		send_replconf(
+			conn,
+			[]string{
+				"REPLCONF",
+				"listening-port",
+				fmt.Sprintf("%d", redis.port),
+			},
+		)
 		<-handshake_ch
-		request2 := []string{"REPLCONF", "capa", "psync2"}
-		send_replconf(conn, request2)
+		send_replconf(
+			conn,
+			[]string{"REPLCONF", "capa", "psync2"},
+		)
 		<-handshake_ch
 		send_psync(conn, "?", "-1")
 	}

@@ -15,6 +15,8 @@ func HandleWHOAMI(server *Redis, cmd Command) {
 func HandleGETUSER(server *Redis, cmd Command) {
 	client := cmd.Client
 	username := cmd.Args[0]
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	user, _ := server.users[username]
 	if user == nil {
 		resp := fmt.Sprintf("No user exists with username '%s'", username)
@@ -52,18 +54,22 @@ func get_hash(pass string) string {
 
 func HandleSETUSER(server *Redis, cmd Command) {
 	args := cmd.Args[1:]
-	client := cmd.Client
 	username := args[0]
+	password := args[1][1:]
+	newHash := get_hash(password)
+
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
 	user, _ := server.users[username]
 
 	if user == nil {
 		user = &User{username: username, hash: make(map[string]struct{})}
 	}
 	// excluding >
-	password := args[1][1:]
-	user.hash[get_hash(password)] = struct{}{}
+	user.hash[newHash] = struct{}{}
 	server.users[username] = user
-	client.conn.Write([]byte("+OK\r\n"))
+	cmd.Client.WriteStatus("OK")
 }
 
 func HandleAUTH(server *Redis, cmd Command) {
@@ -71,42 +77,23 @@ func HandleAUTH(server *Redis, cmd Command) {
 	client := cmd.Client
 	username := args[0]
 	password := args[1]
+	hash := get_hash(password)
+	server.mu.Lock()
+	defer server.mu.Unlock()
 	user, _ := server.users[username]
 	if user == nil {
-		resp_err := "-WRONGPASS invalid username-password pair or user is disabled\r\n"
-		client.conn.Write([]byte(resp_err))
+		cmd.Client.WriteErr(
+			"WRONGPASS invalid username-password pair or user is disabled",
+		)
 		return
 	}
-	hash := get_hash(password)
 	if _, exists := user.hash[hash]; !exists {
-		resp_err := "-WRONGPASS invalid username-password pair or user is disabled\r\n"
-		client.conn.Write([]byte(resp_err))
+		cmd.Client.WriteErr(
+			"WRONGPASS invalid username-password pair or user is disabled",
+		)
 	} else {
 		client.user = user
 		client.auth = true
-		client.conn.Write([]byte("+OK\r\n"))
-	}
-}
-
-func is_acl_cmd(cmd Command) bool {
-	cmdName := cmd.Args[0]
-	return cmdName == "ACL" || cmdName == "AUTH"
-}
-func HandleACL(server *Redis, cmd Command) {
-	args := cmd.Args[1:]
-	subcmd := strings.ToUpper(args[1])
-	cmdName := strings.ToUpper(args[0])
-	client := cmd.Client
-	switch {
-	case subcmd == "WHOAMI":
-		HandleWHOAMI(server, cmd)
-	case subcmd == "GETUSER":
-		HandleGETUSER(server, cmd)
-	case subcmd == "SETUSER":
-		HandleSETUSER(server, cmd)
-	case cmdName == "AUTH":
-		HandleAUTH(server, cmd)
-	default:
-		client.conn.Write([]byte(simple_err("shouldn't be here in acl")))
+		cmd.Client.WriteStatus("OK")
 	}
 }

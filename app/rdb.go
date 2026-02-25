@@ -52,9 +52,6 @@ func read_str(reader *bufio.Reader, buf_size uint32) (string, error) {
 }
 
 func (server *Redis) readRDB() {
-	if server.rdb_read_status {
-		return
-	}
 	filename := filepath.Join(server.rdb_dir, server.dbfilename)
 	file, err := os.Open(filename)
 	if err != nil {
@@ -145,13 +142,4 @@ func (server *Redis) readRDB() {
 		i++
 	}
 	server.rdb_read_status = true
-}
-
-func HandleKEYS(server *Redis, cmd Command) string {
-	server.readRDB()
-	res := []string{}
-	for key := range server.dict {
-		res = append(res, key)
-	}
-	return encode_list(res)
 }
