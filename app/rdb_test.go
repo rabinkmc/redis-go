@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"testing"
 )
 
@@ -12,6 +11,5 @@ func TestRDB(t *testing.T) {
 	server.dbfilename = "dump.rdb"
 
 	server.readRDB()
-	got := server.handleKEYS()
-	fmt.Printf("%#v\n", got)
+	//todo: HandleKEYS(server, cmd)
 }
