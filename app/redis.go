@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strings"
@@ -144,4 +145,97 @@ func NewRedis(redis_config RedisConfig) *Redis {
 		send_psync(conn, "?", "-1")
 	}
 	return redis
+}
+
+func (server *Redis) authenticate(client *Client, cmdName string) bool {
+	// 1. Initialize user if not set
+	if client.user == nil {
+		client.user = server.users["default"]
+	}
+
+	// 2. Bypass check for AUTH command or nopass users
+	if client.user.nopass() || client.auth || cmdName == "AUTH" {
+		return true
+	}
+
+	// 3. Deny access
+	client.conn.Write([]byte("-NOAUTH Authentication required\r\n"))
+	return false
+}
+
+func (server *Redis) dispatch(client *Client, args []string) {
+	cmdName := strings.ToUpper(args[0])
+	command := Command{Client: client, Args: args}
+	// 1. Transaction Queueing Logic
+	// We queue everything except control commands when in MULTI mode
+	if client.queue && cmdName != "EXEC" && cmdName != "DISCARD" && cmdName != "MULTI" {
+		client.commands = append(client.commands, args)
+		client.WriteStatus("QUEUED")
+		return
+	}
+
+	// 2. Specialized Mode Logic (e.g., Pub/Sub)
+	// Commands like SUBSCRIBE change the connection state
+	if in_subscription_mode(command) {
+		HandleSubscription(server, command)
+		return
+	}
+
+	// 3. Centralized Registry Execution
+	// This replaces HandleGeo, HandleZset, HandleACL, etc.
+	Execute(server, command)
+
+	// 4. Replication Propagation
+	// Only propagate write commands (handled inside Execute or here based on registry flag)
+	if reg, ok := CommandRegistry[cmdName]; ok && !reg.ReadOnly {
+		server.write_slaves(cmdName, []byte(encode_list(args)))
+	}
+}
+
+func Execute(server *Redis, cmd Command) {
+	if len(cmd.Args) == 0 {
+		return
+	}
+
+	cmdName := strings.ToUpper(cmd.Args[0])
+	reg, ok := CommandRegistry[cmdName]
+
+	// 1. Check if command exists
+	if !ok {
+		cmd.Client.WriteErr(fmt.Sprintf("ERR unknown command '%s'", cmdName))
+		return
+	}
+
+	// 2. Validate argument count
+	if len(cmd.Args) < reg.MinArgs {
+		cmd.Client.WriteErr(
+			fmt.Sprintf("ERR wrong number of arguments for '%s' command",
+				cmdName,
+			),
+		)
+		return
+	}
+
+	reg.Handler(server, cmd)
+}
+
+func (server *Redis) HandleConnection(conn net.Conn) {
+	client := NewClient(conn)
+	defer client.Close()
+	reader := NewRespReader(conn)
+	for {
+		args, err := reader.ReadCommand()
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("error reading command: %v", err)
+			}
+			break
+		}
+		cmdName := strings.ToUpper(args[0])
+		if !server.authenticate(client, cmdName) {
+			continue
+		}
+
+		server.dispatch(client, args)
+	}
 }

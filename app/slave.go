@@ -35,9 +35,6 @@ func (server *Redis) write_slaves(cmd string, buf []byte) {
 	if len(server.slaves) == 0 {
 		return
 	}
-	if !IsWriteCmd(cmd) {
-		return
-	}
 	server.master_offset += len(buf)
 	for _, conn := range server.slaves {
 		_, err := conn.Write(buf)
