@@ -164,6 +164,8 @@ func (server *Redis) authenticate(client *Client, cmdName string) bool {
 }
 
 func (server *Redis) dispatch(client *Client, args []string) {
+	// job of dispatch is to
+	// redirect the cmd to right method
 	cmdName := strings.ToUpper(args[0])
 	command := Command{Client: client, Args: args}
 	// 1. Transaction Queueing Logic
@@ -182,7 +184,7 @@ func (server *Redis) dispatch(client *Client, args []string) {
 	}
 
 	// 3. Centralized Registry Execution
-	// This replaces HandleGeo, HandleZset, HandleACL, etc.
+	// This replaces Basic Commands, HandleGeo, HandleZset, HandleACL
 	Execute(server, command)
 
 	// 4. Replication Propagation

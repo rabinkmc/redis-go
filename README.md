@@ -1,69 +1,57 @@
-## Redis Clone
+## API 
+look into `api.md` for supported operations
 
-### Basic Operations
+crux: it supports basic list and stream operations, handles set and geo
+operation along with pubsub mode.
 
-* **PING**: `PING [message]`
-* **ECHO**: `ECHO message`
-* **SET**: `SET key value [NX|XX] [GET] [EX seconds|PX milliseconds]`
-* **GET**: `GET key`
-* **INCR**: `INCR key`
-* **TYPE**: `TYPE key`
-* **KEYS**: `KEYS pattern`
+## Design
 
-### List Commands
+Initially, all the handlers were redirected by giant `if` block. Later, I
+thought, it was much better to have a registry. 
 
-* **LPUSH**: `LPUSH key value [value ...]`
-* **RPUSH**: `RPUSH key value [value ...]`
-* **LPOP**: `LPOP key [count]`
-* **BLPOP**: `BLPOP key [key ...] timeout`
-* **LLEN**: `LLEN key`
-* **LRANGE**: `LRANGE key start stop`
+For the registry, to work, all the handlers have to follow the same contract.  
+`type CommandHandler func(server *Redis, cmd Command)`
 
-### Sorted Sets (ZSET)
+The objective of this project is learning Redis by implementing a part of its
+functionality. Although, redis is a single threaded and driven by a single event
+loop, I just thought of using Golang's concurrency and used a single lock for
+the entire program to prevent race condition while accessing the shared data
+structure.
 
-* **ZADD**: `ZADD key [NX|XX] [GT|LT] [CH] [INCR] score member [score member ...]`
-* **ZREM**: `ZREM key member [member ...]`
-* **ZRANK**: `ZRANK key member [WITHSCORE]`
-* **ZRANGE**: `ZRANGE key start stop [BYSCORE|BYLEX] [REV] [LIMIT offset count] [WITHSCORES]`
-* **ZCARD**: `ZCARD key`
-* **ZSCORE**: `ZSCORE key member`
 
-### Streams
+Currently, I am not concerned about the data structure for list, streams and
+sets. I want to ensure their correctness and once that is guaranteed, I can
+think of using optimal data structures suitable for the task in hand.
 
-* **XADD**: `XADD key [NOMKSTREAM] [MAXLEN|MINID [=|~] threshold [LIMIT count]] *|ID field value [field value ...]`
-* **XRANGE**: `XRANGE key start end [COUNT count]`
-* **XREAD**: `XREAD [COUNT count] [BLOCK milliseconds] STREAMS key [key ...] id [id ...]`
+Also, this document is a later addition. Although, one has greater clarity for
+the specs when later written, but this also prevents me from preserving my
+thoughts and mental state while I was grappling with the problem. For eg: I
+might right about replication in greater clarity but I lose the fact that it was
+very difficult and unlinear process, I finally
+arrived at the solution after multiple hit and trials and a improved mental
+model of concurrency. I think I should also work on documenting my thought
+process while building any projects. The learning process, mental state etc are
+useful information to spot and improve on weaknesses or what I need right.
 
-### Pub/Sub
+## Tests: todo
+Most of the test was performed by simply using redis-client `redis-cli` and
+observing if the behaviours were as expected. And, this project is as good as
+codecrafters testing suite. This project passed the codecrafters challenge so
+there is certain level of confidence, however, real production systems don't
+rely on third party testing tools.
 
-* **SUBSCRIBE**: `SUBSCRIBE channel [channel ...]`
-* **UNSUBSCRIBE**: `UNSUBSCRIBE [channel [channel ...]]`
-* **PUBLISH**: `PUBLISH channel message`
+So, I need to write tests for all the methods. 
 
-### Transactions
+## Concurrency
+This is a great project to learn about concurrent programming. With event loop,
+everything becomes a lot easier since only one process is running at any
+instance so you don't have to worry about race conditions if you have correctly
+designed a event loop goroutine responsible for handling client commands. But,
+with each client having its own goroutine spawned up, making sure data structure
+is locked and only one process is able to mutate and read at a particular time
+becomes important. To avoid complexity, a single global lock is used.
 
-* **MULTI**: `MULTI` (Starts transaction)
-* **EXEC**: `EXEC` (Executes transaction)
-* **DISCARD**: `DISCARD` (Aborts transaction)
+The responsibility of lock handling is delegated to each handler.
 
-### Geospatial
 
-* **GEOADD**: `GEOADD key [NX|XX] [CH] longitude latitude member [longitude latitude member ...]`
-* **GEOPOS**: `GEOPOS key member [member ...]`
-* **GEODIST**: `GEODIST key member1 member2 [unit]`
-* **GEOSEARCH**: `GEOSEARCH key FROMMEMBER member | FROMLONLAT lon lat BYRADIUS radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC]`
-
-### Server/Replication
-
-* **INFO**: `INFO [section]`
-* **CONFIG**: `CONFIG GET parameter` / `CONFIG SET parameter value`
-* **WAIT**: `WAIT numreplicas timeout`
-* **REPLCONF**: `REPLCONF <parameter> <value>` (Internal use, usually not manual)
-* **PSYNC**: `PSYNC replicationid offset` (Internal use)
-
-### Authorization
-
-* **AUTH**: `AUTH [username] password`
-* **WHOAMI**: `ACL WHOAMI`
-* **GETUSER**: `ACL GETUSER username`
-* **SETUSER**: `SETUSER username [rule [rule ...]]` 
+## Redis-protocol
