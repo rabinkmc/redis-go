@@ -53,5 +53,3 @@ becomes important. To avoid complexity, a single global lock is used.
 
 The responsibility of lock handling is delegated to each handler.
 
-
-## Redis-protocol
